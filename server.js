@@ -14,7 +14,7 @@ const fig = require('./lib/figshare');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-const TMP_DIR = path.join(__dirname, '.tmp-uploads');
+const TMP_DIR = path.join(os.tmpdir(), 'figshare-uploader-tmp');
 fs.mkdirSync(TMP_DIR, { recursive: true });
 const upload = multer({
   storage: multer.diskStorage({

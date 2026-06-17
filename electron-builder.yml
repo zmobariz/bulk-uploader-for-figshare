@@ -1,0 +1,22 @@
+appId: com.zmobariz.figshare-uploader-web
+productName: Figshare Bulk Uploader
+asar: false
+directories:
+  output: dist
+  buildResources: build
+win:
+  target: portable
+portable:
+  artifactName: "FigshareBulkUploader-${version}-portable-win.${ext}"
+mac:
+  target: dmg
+  category: public.app-category.productivity
+  artifactName: "FigshareBulkUploader-${version}-mac.${ext}"
+linux:
+  target: AppImage
+  category: Science
+  artifactName: "FigshareBulkUploader-${version}-linux.${ext}"
+publish:
+  provider: github
+  owner: zmobariz
+  repo: figshare-uploader-web
