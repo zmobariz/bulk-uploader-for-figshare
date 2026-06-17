@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Figshare Bulk Uploader</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128228;</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">&#11041;</div>
+      <div>
+        <h1>Figshare Bulk Uploader</h1>
+        <p class="brand-sub">Create, update &amp; manage Figshare articles in bulk from a spreadsheet.</p>
+      </div>
+    </div>
+    <div class="conn-chip" id="connChip" data-state="off"><span class="dot"></span><span id="connText">Not connected</span></div>
+  </header>
+
+  <main class="wrap">
+
+    <section class="card">
+      <div class="card-head"><span class="step-badge">1</span>
+        <div><h2>Connect to Figshare</h2><p class="muted">Your token is sent only to Figshare via this local app and never stored.</p></div>
+      </div>
+      <div class="card-body grid-2">
+        <div class="field">
+          <label for="token">Personal token</label>
+          <div class="token-row">
+            <input type="password" id="token" placeholder="figshare personal token" autocomplete="off" spellcheck="false" />
+            <button class="ghost icon" id="toggleToken" title="Show / hide" type="button">&#128065;</button>
+          </div>
+          <a class="hint-link" href="https://help.figshare.com/article/how-to-get-a-personal-token" target="_blank" rel="noopener">How do I get a token?</a>
+        </div>
+        <div class="field">
+          <label for="baseUrl">API base URL</label>
+          <input type="text" id="baseUrl" value="https://api.figshare.com/v2" spellcheck="false" />
+          <span class="hint">Change only for an institutional / stage endpoint.</span>
+        </div>
+      </div>
+      <div class="card-foot"><button class="primary" id="btnTest" type="button">Test connection</button><span class="inline-status" id="connStatus"></span></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="step-badge">2</span>
+        <div><h2>Load your spreadsheet</h2><p class="muted">One row per article. <code>.xlsx</code>, <code>.xls</code>, <code>.csv</code>.</p></div>
+      </div>
+      <div class="card-body">
+        <div class="dropzone" id="dzData">
+          <input type="file" id="dataFile" accept=".xlsx,.xls,.csv" hidden />
+          <div class="dz-inner"><div class="dz-icon">&#128196;</div>
+            <p><strong>Drag &amp; drop</strong> your spreadsheet, or <button class="linklike" id="pickData" type="button">browse</button></p>
+            <p class="muted small" id="dataMeta">No file loaded yet &middot; <a href="/samples/sample_metadata_template.csv" download>template (CSV)</a> &middot; <a href="/samples/sample_metadata_template.xlsx" download>template (XLSX)</a></p>
+          </div>
+        </div>
+        <div id="sheetPickWrap" class="field hidden" style="margin-top:14px">
+          <label for="sheetPick">Worksheet</label>
+          <select id="sheetPick"></select>
+        </div>
+        <div id="previewWrap" class="hidden">
+          <div class="preview-head">
+            <span id="rowCount" class="pill"></span><span id="colCount" class="pill alt"></span>
+            <button class="ghost small" id="clearData" type="button">Remove file</button>
+          </div>
+          <div class="table-scroll"><table id="previewTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="step-badge">3</span>
+        <div><h2>Operation &amp; options</h2><p class="muted">Choose what this run does and how it behaves.</p></div>
+      </div>
+      <div class="card-body">
+        <div class="grid-2">
+          <div class="field">
+            <label for="operation">Operation</label>
+            <select id="operation">
+              <option value="create">Create new articles</option>
+              <option value="update">Update existing (metadata / files)</option>
+              <option value="addfiles">Add files to existing</option>
+              <option value="publish">Publish existing</option>
+              <option value="delete">Delete drafts (careful)</option>
+            </select>
+            <span class="hint" id="opHint">Each row creates a new article.</span>
+          </div>
+          <div class="field" id="syncField">
+            <label for="sync">If an article with the same title exists</label>
+            <select id="sync">
+              <option value="create">Always create new</option>
+              <option value="skip">Skip the row</option>
+              <option value="update">Update the existing one</option>
+            </select>
+            <span class="hint">De-duplication for re-runs (matches on Title).</span>
+          </div>
+        </div>
+
+        <div class="grid-2" id="modePublishRow">
+          <div class="field">
+            <label>What to upload</label>
+            <div class="segmented" id="segMode">
+              <button data-val="metadata" class="active" type="button">Metadata only</button>
+              <button data-val="files" type="button">Metadata + files</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Publish state</label>
+            <div class="segmented" id="segPublish">
+              <button data-val="false" class="active" type="button">Save as draft</button>
+              <button data-val="true" type="button">Publish live</button>
+            </div>
+            <span class="hint warn" id="publishWarn" style="visibility:hidden">Published items get a DOI and are public &mdash; hard to undo.</span>
+          </div>
+        </div>
+
+        <div class="opts-row">
+          <label class="check"><input type="checkbox" id="optReserveDoi" /> Reserve a DOI</label>
+          <label class="check"><input type="checkbox" id="optEmbargo" /> Embargo</label>
+          <input type="date" id="embargoDate" class="hidden" />
+          <span class="spacer"></span>
+          <label class="conc">Parallel rows
+            <select id="concurrency"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option></select>
+          </label>
+        </div>
+
+        <details class="defaults-box">
+          <summary>Batch defaults (applied to every row that doesn't set its own)</summary>
+          <div class="grid-2" style="margin-top:12px">
+            <div class="field">
+              <label>Default categories</label>
+              <div class="picker-row">
+                <input type="text" id="catPick" list="catList" placeholder="type a category name..." />
+                <button class="ghost small" id="catAdd" type="button">Add</button>
+              </div>
+              <datalist id="catList"></datalist>
+              <div class="chips" id="catChips"></div>
+            </div>
+            <div class="field">
+              <label>Default licence</label>
+              <input type="text" id="licPick" list="licList" placeholder="type a licence name..." />
+              <datalist id="licList"></datalist>
+              <label style="margin-top:10px">Default item type</label>
+              <input type="text" id="typePick" list="typeList" placeholder="dataset, figure, software..." />
+              <datalist id="typeList"></datalist>
+              <label style="margin-top:10px">Default group ID (institutional)</label>
+              <input type="text" id="groupPick" placeholder="numeric group id (optional)" />
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="card hidden" id="card-files">
+      <div class="card-head"><span class="step-badge">+</span>
+        <div><h2>Select files to attach</h2><p class="muted">Add the files referenced in your sheet &mdash; matched by filename per row.</p></div>
+      </div>
+      <div class="card-body">
+        <div class="dropzone" id="dzFiles">
+          <input type="file" id="attachFiles" multiple hidden />
+          <div class="dz-inner"><div class="dz-icon">&#128451;</div>
+            <p><strong>Drag &amp; drop</strong> files (or a folder), or <button class="linklike" id="pickFiles" type="button">browse</button></p>
+            <p class="muted small" id="filesMeta">No files added yet</p>
+          </div>
+        </div>
+        <div id="fileChips" class="chips"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="step-badge">4</span>
+        <div><h2>Map columns &rarr; Figshare fields</h2><p class="muted">Auto-matched on load. Save reusable templates or import/export JSON.</p></div>
+      </div>
+      <div class="card-body">
+        <div class="map-toolbar">
+          <button class="ghost small" id="btnAutoMap" type="button">Auto-match</button>
+          <button class="ghost small" id="btnImportMap" type="button">Import JSON</button>
+          <button class="ghost small" id="btnExportMap" type="button">Export JSON</button>
+          <input type="file" id="mapFile" accept=".json" hidden />
+          <span class="tdiv"></span>
+          <select id="templateSelect" class="tpl-select"><option value="">Templates...</option></select>
+          <button class="ghost small" id="btnSaveTpl" type="button">Save</button>
+          <button class="ghost small" id="btnDelTpl" type="button">Delete</button>
+          <button class="ghost small right" id="btnPreview" type="button">Preview payloads</button>
+          <button class="ghost small" id="btnToggleJson" type="button">View JSON</button>
+        </div>
+        <div id="mapGrid" class="map-grid"><p class="muted small">Load a spreadsheet first to choose columns.</p></div>
+
+        <details class="defaults-box" id="customFieldsBox">
+          <summary>Custom fields (institutional)</summary>
+          <div class="picker-row" style="margin-top:12px">
+            <input type="text" id="cfName" placeholder="custom field name (exactly as in Figshare)" />
+            <select id="cfColumn"><option value="">&mdash; column &mdash;</option></select>
+            <label class="check"><input type="checkbox" id="cfList" /> list</label>
+            <button class="ghost small" id="cfAdd" type="button">Add</button>
+          </div>
+          <div id="cfRows" class="cf-rows"></div>
+        </details>
+
+        <pre id="jsonPreview" class="json-preview hidden"></pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><span class="step-badge">5</span>
+        <div><h2>Review &amp; run</h2><p class="muted">Validate, then run. Retry only failures, and export an audit trail.</p></div>
+      </div>
+      <div class="card-body">
+        <label class="check danger hidden" id="deleteGuard"><input type="checkbox" id="deleteConfirm" /> I understand this permanently deletes the listed articles.</label>
+        <div class="run-actions">
+          <button class="ghost" id="btnValidate" type="button">Pre-flight check</button>
+          <button class="primary" id="btnRun" type="button" disabled>Start</button>
+          <button class="ghost" id="btnRetry" type="button" disabled>Retry failed</button>
+          <button class="ghost small" id="btnExportResults" type="button" disabled>Export results CSV</button>
+          <button class="ghost small" id="btnWriteback" type="button" disabled>Download sheet + IDs/DOIs</button>
+        </div>
+        <div id="validateMsg" class="validate-msg"></div>
+        <div id="preflightReport" class="preflight"></div>
+        <div id="progressWrap" class="hidden">
+          <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="progress-stats" id="progressStats"></div>
+        </div>
+        <div class="table-scroll" id="resultsWrap" style="margin-top:14px"></div>
+      </div>
+    </section>
+
+    <footer class="foot"><p>Unofficial tool &middot; not affiliated with Figshare. Inspired by <a href="https://github.com/amoe/figshare-uploader" target="_blank" rel="noopener">amoe/figshare-uploader</a>.</p></footer>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="shared.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

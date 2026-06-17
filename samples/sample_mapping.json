@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "mapping": {
+    "title": "Title",
+    "description": "Description",
+    "keywords": { "column": "Keywords", "separator": ";" },
+    "categories": { "column": "Categories", "separator": ";" },
+    "authors": { "column": "Authors", "separator": ";" },
+    "license": "License",
+    "defined_type": "Item Type",
+    "references": { "column": "References", "separator": ";" },
+    "files": { "column": "Files", "separator": ";" }
+  }
+}

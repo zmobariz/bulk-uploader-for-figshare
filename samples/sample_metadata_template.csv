@@ -1,0 +1,4 @@
+Title,Description,Keywords,Categories,Authors,License,Item Type,References,Files
+Eye scan dataset 2024,"High-resolution retinal images collected in 2024.",retina;ophthalmology;imaging,,Ada Lovelace;Alan Turing,1,dataset,https://example.org/study,eye.jpg
+Survey responses Q1,"Anonymised survey responses for the first quarter.",survey;social science,,Grace Hopper,1,dataset,,responses.csv
+Project poster,"Conference poster summarising project outcomes.",poster;conference,,Katherine Johnson,1,poster,,poster.pdf

@@ -1,0 +1,27 @@
+{
+  "name": "figshare-bulk-uploader",
+  "version": "2.0.0",
+  "description": "Modern web app + CLI to bulk-create, update and manage Figshare articles from Excel/CSV spreadsheets.",
+  "main": "server.js",
+  "type": "commonjs",
+  "bin": {
+    "figshare-upload": "cli.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "cli": "node cli.js",
+    "desktop": "electron electron/main.js",
+    "docker:build": "docker build -t figshare-bulk-uploader .",
+    "docker:run": "docker run --rm -p 4000:4000 figshare-bulk-uploader"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^2.0.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "license": "Apache-2.0"
+}

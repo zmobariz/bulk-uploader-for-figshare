@@ -1,0 +1,8 @@
+node_modules
+.tmp-uploads
+electron
+*.log
+.git
+.gitignore
+.DS_Store
+.env
