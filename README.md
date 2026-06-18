@@ -1,5 +1,8 @@
 # Figshare Bulk Uploader
 
+[![Build](https://github.com/zmobariz/figshare-uploader-web/actions/workflows/release.yml/badge.svg)](https://github.com/zmobariz/figshare-uploader-web/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A modern, browser-based replacement for the old desktop
 [`amoe/figshare-uploader`](https://github.com/amoe/figshare-uploader) — plus a headless CLI.
 Drop in a spreadsheet, map columns once, and create, update, publish or clean up many
@@ -25,6 +28,22 @@ on Windows click **More info → Run anyway**, on macOS right-click → **Open**
 rights are required.** It's fully self-contained — the only network connection it makes is to the
 Figshare API. New to it? See the **[User guide](docs/USER-GUIDE.md)**. Deploying on managed/secure
 machines? See **[Deployment & security](docs/DEPLOYMENT-AND-SECURITY.md)**.
+
+## Security & assurance
+
+Designed to run locally with a small, auditable trust boundary:
+
+- No administrator rights required; no background services, drivers, scheduled tasks or autostart entries.
+- Local UI only — the web interface binds to `127.0.0.1` by default.
+- No telemetry, analytics, crash reporting, update checks or third-party/CDN calls (libraries are bundled).
+- Figshare personal tokens are held in memory for the session only, sent only to the Figshare API over HTTPS, and never written to disk or logged.
+- Outbound requests are allow-listed to Figshare hosts; private/loopback destinations are rejected.
+- Release binaries ship with **SHA-256 checksums**, built in CI from tagged source.
+- Dependencies and code are scanned automatically (Dependabot + CodeQL); report issues privately via [GitHub Security Advisories](https://github.com/zmobariz/figshare-uploader-web/security/advisories/new).
+
+This is **not** a guarantee that the software is free of vulnerabilities. It means the project is open source, auditable, locally run, token-minimising, telemetry-free, hash-verifiable, and continuously scanned. Full detail: **[Assurance statement](ASSURANCE.md)** &middot; **[Deployment & security notes](docs/DEPLOYMENT-AND-SECURITY.md)**.
+
+**IT / security approval summary:** runs locally &middot; no admin &middot; no machine-wide install &middot; no telemetry &middot; no token storage &middot; single outbound destination (Figshare API over HTTPS) &middot; hash-verifiable binaries &middot; public, auditable source.
 
 ## Highlights (v2)
 
