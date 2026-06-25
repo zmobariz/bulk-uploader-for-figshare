@@ -24,13 +24,13 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "express": "^4.19.2",
+    "express": "^5.2.1",
     "multer": "^2.0.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "license": "MIT",
   "devDependencies": {
-    "electron": "^42.4.1",
+    "electron": "^42.5.0",
     "electron-builder": "^26.15.3"
   },
   "repository": {
