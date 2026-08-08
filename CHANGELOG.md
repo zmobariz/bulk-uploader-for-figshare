@@ -3,6 +3,16 @@
 All notable changes to this project. Releases are published at
 https://github.com/zmobariz/bulk-uploader-for-figshare/releases
 
+## 2.1.2 — security (dependencies + runtime)
+- Electron 42 → 43 (patched Chromium and Node runtime shipped in the desktop apps).
+- Dev-tree dependency security fixes: undici (both 6.x and 7.x copies), fast-uri, brace-expansion, js-yaml — `npm audit` clean.
+- Docker base image `node:20-alpine` → `node:22-alpine` (LTS, digest-pinned).
+- CI: GitHub Actions (checkout, setup-node, upload/download-artifact, CodeQL) updated to current majors.
+
+## 2.1.1 — security (build toolchain)
+- Cleared 18 `npm audit` findings in the electron-builder dev tree via `tar` 7.5.22, `@electron/asar` 4 and `minimatch` 10 overrides.
+- Release workflow bumped to Node 22.
+
 ## 2.1.0 — rebrand + update notifications
 - Renamed to **Bulk Uploader for Figshare** (repo `bulk-uploader-for-figshare`) — a third-party app *for* Figshare, not affiliated with Figshare.
 - In-app **About** footer showing the version with links to the GitHub repo and Releases.
