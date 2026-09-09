@@ -25,7 +25,7 @@
   "dependencies": {
     "electron-updater": "^6.8.9",
     "express": "^5.2.1",
-    "multer": "^2.0.1",
+    "multer": "^2.3.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "license": "MIT",
