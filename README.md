@@ -19,11 +19,11 @@ Figshare articles in a single run.
 Non-technical users don't need Node or a terminal — download a ready-to-run app from the
 [**Releases**](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) page:
 
-Latest release: **v2.1.2** (or browse [all releases](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) for newer):
+Latest release: **v2.1.3** (or browse [all releases](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) for newer):
 
-- **Windows** — [portable .exe](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.2/BulkUploaderForFigshare-2.1.2-portable-win.exe) (double-click, nothing to install) or [per-user installer](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.2/BulkUploaderForFigshare-2.1.2-setup-win.exe) (no admin).
-- **macOS** — [.dmg](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.2/BulkUploaderForFigshare-2.1.2-mac.dmg).
-- **Linux** — [.AppImage](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.2/BulkUploaderForFigshare-2.1.2-linux.AppImage) (`chmod +x`, then run).
+- **Windows** — [portable .exe](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-portable-win.exe) (double-click, nothing to install) or [per-user installer](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-setup-win.exe) (no admin).
+- **macOS** — [.dmg](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-mac.dmg).
+- **Linux** — [.AppImage](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-linux.AppImage) (`chmod +x`, then run).
 
 The app isn't code-signed (signing costs money), so the first launch shows a security prompt:
 on Windows click **More info → Run anyway**, on macOS right-click → **Open**. **No administrator

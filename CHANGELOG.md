@@ -3,6 +3,13 @@
 All notable changes to this project. Releases are published at
 https://github.com/zmobariz/bulk-uploader-for-figshare/releases
 
+## 2.1.3 — security (dependencies)
+- multer 2.2.0 → 2.3.0 (runtime): fixes a file-descriptor leak on aborted uploads (GHSA-qfvm-cv95-jqjf) plus GHSA-wc9g-mqfw-jrwm, GHSA-qvfw-j98x-7q72 and GHSA-535w-7cp7-47q4; minimum range raised to `^2.3.0`.
+- qs 6.15.3 → 6.16.0 (runtime, via Express): GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g.
+- js-yaml 4.3.1 → 4.3.2 (runtime via electron-updater, and the dev tree): GHSA-2883-xcg3-v3hh.
+- Dev-tree dependency security fixes: fast-uri 3.1.7, @xmldom/xmldom 0.8.15 — `npm audit` clean.
+- CI: GitHub Actions updated — checkout v7.0.1 (incl. the release workflow), CodeQL v4.38.0, OpenSSF Scorecard v2.4.4 (image moved from gcr.io to ghcr.io, fixing the Scorecard workflow).
+
 ## 2.1.2 — security (dependencies + runtime)
 - Electron 42 → 43 (patched Chromium and Node runtime shipped in the desktop apps).
 - Dev-tree dependency security fixes: undici (both 6.x and 7.x copies), fast-uri, brace-expansion, js-yaml — `npm audit` clean.
