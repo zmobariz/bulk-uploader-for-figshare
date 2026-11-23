@@ -19,11 +19,11 @@ Figshare articles in a single run.
 Non-technical users don't need Node or a terminal — download a ready-to-run app from the
 [**Releases**](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) page:
 
-Latest release: **v2.1.3** (or browse [all releases](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) for newer):
+Latest release: **v2.2.0** (or browse [all releases](https://github.com/zmobariz/bulk-uploader-for-figshare/releases) for newer):
 
-- **Windows** — [portable .exe](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-portable-win.exe) (double-click, nothing to install) or [per-user installer](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-setup-win.exe) (no admin).
-- **macOS** — [.dmg](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-mac.dmg).
-- **Linux** — [.AppImage](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.1.3/BulkUploaderForFigshare-2.1.3-linux.AppImage) (`chmod +x`, then run).
+- **Windows** — [portable .exe](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.2.0/BulkUploaderForFigshare-2.2.0-portable-win.exe) (double-click, nothing to install) or [per-user installer](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.2.0/BulkUploaderForFigshare-2.2.0-setup-win.exe) (no admin).
+- **macOS** — [.dmg](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.2.0/BulkUploaderForFigshare-2.2.0-mac.dmg).
+- **Linux** — [.AppImage](https://github.com/zmobariz/bulk-uploader-for-figshare/releases/download/v2.2.0/BulkUploaderForFigshare-2.2.0-linux.AppImage) (`chmod +x`, then run).
 
 The app isn't code-signed (signing costs money), so the first launch shows a security prompt:
 on Windows click **More info → Run anyway**, on macOS right-click → **Open**. **No administrator
@@ -41,7 +41,8 @@ Designed to run locally with a small, auditable trust boundary:
 - One optional non-Figshare connection: an update check to the GitHub Releases API (and update downloads from GitHub) so the app can tell you a newer version exists. No token or data is sent there; disable with `NO_UPDATE_CHECK=1`.
 - Figshare personal tokens are held in memory for the session only, sent only to the Figshare API over HTTPS, and never written to disk or logged.
 - Figshare API requests are allow-listed to Figshare hosts; private/loopback destinations are rejected.
-- Release binaries ship with **SHA-256 checksums**, built in CI from tagged source.
+- Strict Content-Security-Policy; the local server refuses unexpected `Host` headers and cross-origin requests; the desktop renderer is sandboxed with no Node.js access.
+- Release binaries ship with **SHA-256 checksums** (signed with Sigstore cosign), built in CI from tagged source. Each release has a [change record](docs/CHANGE-CONTROL.md).
 - Dependencies and code are scanned automatically (Dependabot + CodeQL); report issues privately via [GitHub Security Advisories](https://github.com/zmobariz/bulk-uploader-for-figshare/security/advisories/new).
 
 This is **not** a guarantee that the software is free of vulnerabilities. It means the project is open source, auditable, locally run, token-minimising, telemetry-free, hash-verifiable, and continuously scanned. Full detail: **[Assurance statement](ASSURANCE.md)** &middot; **[Deployment & security notes](docs/DEPLOYMENT-AND-SECURITY.md)**.
@@ -126,6 +127,17 @@ npm run docker:build
 npm run docker:run        # then open http://localhost:4000
 ```
 
+Opening it by another name (a server hostname or reverse proxy)? Add `-e ALLOWED_HOSTS=<that name>` —
+see [Configuration](#configuration).
+
+## Tests
+
+```bash
+npm test                  # offline: security headers, Host/Origin checks, SSRF allow-list, input validation, uploads
+```
+
+CI runs the tests, `npm audit` and a Docker build on every pull request (`.github/workflows/test.yml`).
+
 ## Build the desktop apps yourself
 
 Most users should just download from Releases (above). To build locally:
@@ -183,6 +195,9 @@ attaching, not sent as metadata).
 | --- | --- | --- |
 | `PORT` | `4000` | Server port. |
 | `HOST` | `127.0.0.1` | Bind address. Loopback by default; the Docker image sets `0.0.0.0`. |
+| `ALLOWED_HOSTS` | — | Extra host names the server answers to (comma-separated), e.g. a reverse-proxy name. Loopback names are always allowed; requests with any other `Host` header get HTTP 421 (DNS-rebinding defence). `*` disables the check. |
+| `TRUST_PROXY` | — | Set to `1` only behind a reverse proxy: the host and scheme are then taken from `X-Forwarded-Host` / `X-Forwarded-Proto` for the Host and Origin checks. Ignored otherwise. |
+| `NO_UPDATE_CHECK` | — | Set to `1` to disable the GitHub update check and desktop auto-update. |
 | `FIGSHARE_TOKEN` | — | CLI token (alternative to `--token`). |
 | `FIGSHARE_BASE` | api.figshare.com/v2 | CLI base URL. |
 
@@ -192,6 +207,8 @@ attaching, not sent as metadata).
 server.js          Express server (thin) -> lib/figshare.js
 cli.js             Headless CLI
 lib/figshare.js    API core: retry/backoff, resumable upload, runOperation()
+lib/guard.js       HTTP hardening: CSP + headers, Host/Origin checks, input validation
+test/              Automated tests (`npm test`, offline)
 public/
   index.html       UI
   styles.css       Styling (light + dark)

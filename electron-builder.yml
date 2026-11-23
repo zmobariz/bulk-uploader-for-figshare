@@ -1,6 +1,17 @@
 appId: com.zmobariz.bulk-uploader-for-figshare
 productName: Bulk Uploader for Figshare
 asar: false
+# Ship only the runtime (production node_modules are added automatically):
+# no tests, docs, Dockerfile or CI config inside the desktop apps.
+files:
+  - package.json
+  - LICENSE
+  - server.js
+  - cli.js
+  - electron/**
+  - lib/**
+  - public/**
+  - samples/**
 directories:
   output: dist
   buildResources: build

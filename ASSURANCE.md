@@ -29,13 +29,31 @@ teams make an informed decision. It does **not** certify the software as free of
   fails silently and the app continues.
 - No analytics, crash reporting or other third-party/CDN calls at runtime (the SheetJS library is bundled).
 
+## Application hardening (from v2.2.0)
+- **Content-Security-Policy** on every response: scripts only from the app itself (no inline script or
+  `eval`), network calls only to the app's own local server (`connect-src 'self'`), no framing or plugins.
+  Spreadsheet content and Figshare responses are HTML-escaped before display.
+- **Local-server request checks:** the `Host` header must be a loopback name (defeats DNS rebinding;
+  extend with `ALLOWED_HOSTS` for hosted deployments), and state-changing requests from another origin
+  are refused (defeats cross-site form posts against the local API).
+- **Input validation:** Article IDs must be positive integers; uploaded files are stored under random
+  names in a private (`0700`) temp directory and deleted after each row.
+- **Desktop shell:** sandboxed, context-isolated renderer without Node.js; external links open in the
+  system browser and the app window cannot navigate away from its own UI; all device/permission
+  requests (camera, microphone, location, USB/HID/serial) are denied; updater IPC is accepted only from
+  the app's own page.
+- These controls are covered by an automated, offline test suite (`npm test`).
+
 ## Build & release integrity
 - Release binaries (Windows portable + per-user installer, macOS `.dmg`, Linux AppImage) are built by
   GitHub Actions from tagged source (`.github/workflows/release.yml`).
 - Each release includes `SHA256SUMS.txt`. Verify before distributing
   (`Get-FileHash <file> -Algorithm SHA256`, or `shasum -a 256 <file>`).
-- From v2.0.7, `SHA256SUMS.txt` is also signed with Sigstore **cosign** (keyless/OIDC). Verify:
-  `cosign verify-blob --certificate SHA256SUMS.txt.pem --signature SHA256SUMS.txt.sig --certificate-identity-regexp "^https://github.com/zmobariz/bulk-uploader-for-figshare" --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS.txt`
+- `SHA256SUMS.txt` is also signed with Sigstore **cosign** (keyless/OIDC) by the release workflow.
+  From **v2.2.0** the signature is a Sigstore bundle, `SHA256SUMS.txt.sigstore.json`. Verify (cosign v3; on cosign v2.4+ add `--new-bundle-format`):
+  `cosign verify-blob --bundle SHA256SUMS.txt.sigstore.json --certificate-identity-regexp "^https://github\.com/zmobariz/bulk-uploader-for-figshare/\.github/workflows/release\.yml@refs/tags/v" --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS.txt`
+  Releases v2.0.7–v2.1.3 ship `SHA256SUMS.txt.sig` + `.pem` instead:
+  `cosign verify-blob --certificate SHA256SUMS.txt.pem --signature SHA256SUMS.txt.sig --certificate-identity-regexp "^https://github\.com/zmobariz/bulk-uploader-for-figshare/" --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS.txt`
 - Binaries are **not code-signed** (no paid certificate); first launch triggers SmartScreen/Gatekeeper.
   On application-allow-listing platforms (WDAC/AppLocker), allow-list by the published SHA-256.
 
@@ -49,7 +67,14 @@ teams make an informed decision. It does **not** certify the software as free of
 
 ## Known limitations
 - Unsigned binaries (SmartScreen/Gatekeeper prompts; no publisher-based allow-list rules).
-- No formal third-party security audit or certification.
+- Desktop auto-update checks each download against the SHA-512 in the release's `latest*.yml`. That
+  file comes from the same GitHub release, and the cosign-signed `SHA256SUMS.txt` is not checked
+  in-app. Anyone able to replace release assets could ship an update; they could equally replace
+  the manual downloads. Updates are never installed without the user clicking *Restart to update*.
+  Where this matters, disable auto-update (`NO_UPDATE_CHECK=1`) and deploy releases verified against
+  the signed checksums.
+- No formal third-party security audit or certification. Reviews to date are the maintainer's
+  security review plus an independent AI code review of each release (see `docs/CHANGE-CONTROL.md`).
 - Duplicate detection matches on Title (or an Article ID column), not a cryptographic key.
 - Static analysis (CodeQL) flags the API-proxy fetch as a potential SSRF. This is mitigated by the
   Figshare host allow-list plus loopback binding, and is recorded as a reviewed, dismissed finding
@@ -73,6 +98,8 @@ How the project maps to the themes:
 - **Build-environment / supply-chain security** — CI builds from tagged source with least-privilege
   workflow permissions; GitHub Actions and the Docker base image pinned by digest; dependencies pinned
   via lockfile and tracked by Dependabot; OpenSSF Scorecard runs on the repository.
+- **Change control** — every release is recorded in `docs/CHANGE-CONTROL.md` (scope, risk, test
+  evidence, rollback, approval) alongside the changelog.
 - **Secure deployment & maintenance** — reproducible release builds; SHA-256 checksums plus Sigstore
   cosign signatures; no telemetry; update checks are opt-out (`NO_UPDATE_CHECK=1`) and desktop auto-update always prompts before installing (never silent); documented guidance for managed/locked-down machines.
 - **Communication with customers** — this assurance statement, `SECURITY.md`, deployment & security

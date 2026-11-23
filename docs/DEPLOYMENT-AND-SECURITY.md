@@ -19,6 +19,7 @@ from a spreadsheet. Source: https://github.com/zmobariz/bulk-uploader-for-figsha
   it is not reachable from the network. Outbound requests are enforced against an **allow-list** (HTTPS only, Figshare hosts; private/loopback addresses blocked), hard-coded to `figshare.com` / `figsh.com`).
 - **One optional second destination: GitHub.** The app checks the GitHub Releases API (`api.github.com`)
   for a newer version, and the Windows installer / Linux AppImage can download updates from GitHub.
+  A downloaded update is **only installed when the user clicks "Restart to update"** — never silently.
   No token or personal data is sent. **Disable with `NO_UPDATE_CHECK=1`**; if GitHub is blocked the
   check fails silently. Set that variable for fully air-gapped deployments.
 - **No telemetry, analytics, crash reporting, or third-party/CDN calls.** All UI code and libraries
@@ -33,14 +34,49 @@ from a spreadsheet. Source: https://github.com/zmobariz/bulk-uploader-for-figsha
 
 ## Dependencies (bundled, auditable)
 - App server: `express`, `multer`, `xlsx` (SheetJS) — all pure JavaScript.
-- Desktop shell: `Electron`. No other native binaries.
+- Desktop shell: `Electron` (v45 from app v2.2.0). No other native binaries.
 
 ## Build integrity / supply chain
 - Releases are built by **GitHub Actions from tagged source** (`.github/workflows/release.yml`) —
   auditable and repeatable.
-- Every release includes **`SHA256SUMS-<os>.txt`**. Verify before distributing/allowlisting:
+- Every release includes **`SHA256SUMS.txt`**, signed with Sigstore cosign
+  (`SHA256SUMS.txt.sigstore.json` from v2.2.0 — verification command in [ASSURANCE.md](../ASSURANCE.md)).
+  Verify each file before distributing/allowlisting:
   - Windows: `Get-FileHash .\<file> -Algorithm SHA256`
   - macOS/Linux: `shasum -a 256 <file>`
+- Every release has a change record in [CHANGE-CONTROL.md](CHANGE-CONTROL.md) (scope, risk, test
+  evidence, rollback) for your own change-approval process.
+
+## Hardening built into the app (v2.2.0+)
+- Strict Content-Security-Policy on the UI; spreadsheet and Figshare content is escaped before display.
+- The local server refuses requests with an unexpected `Host` header (DNS rebinding) and
+  state-changing requests from other origins (cross-site requests from web pages).
+- Desktop renderer: sandboxed, context-isolated, no Node.js; links open in the system browser; all
+  device/permission requests denied.
+
+## Running the web/Docker version on a server
+The server only answers to loopback host names by default. If users reach it by another name (a
+reverse proxy or `http://uploader.example.ac.uk`), set **`ALLOWED_HOSTS`** to that name
+(comma-separated). Put it behind HTTPS and your own authentication: the app has no user accounts,
+and anyone who can reach it can use it with **their own** Figshare token (tokens are never stored).
+
+Behind a reverse proxy, set **`TRUST_PROXY=1`** and have the proxy forward the public host and
+scheme. The app then uses them for both the `ALLOWED_HOSTS` check and the cross-origin check. Do
+not set `TRUST_PROXY` when the app is reachable directly, because anyone could then supply these
+headers. nginx example:
+
+```nginx
+proxy_set_header X-Forwarded-Host  $http_host;   # keeps a non-default port such as :8443
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+Caddy and Traefik send both headers by default. Attachments are staged in a private temp directory
+(one per server process, deleted on exit); a single request is limited to 500 files of up to 20 GB
+each, so size the temp volume accordingly.
+
+Where the GitHub auto-update channel is not acceptable (see *Known limitations* in
+[ASSURANCE.md](../ASSURANCE.md)), set `NO_UPDATE_CHECK=1`, verify releases against the signed
+checksums and deploy them yourself.
 
 ## Running under application allowlisting (WDAC / AppLocker)
 - The executables are **not code-signed** (certificates cost money), so SmartScreen/Gatekeeper will

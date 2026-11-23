@@ -116,7 +116,8 @@
 
   /**
    * Pre-flight: validate every row before any upload.
-   * ctx = { operation, sync, mode, publish, lookups, existing:[{id,title}], fileSet:Set(lowercase basenames) }
+   * ctx = { operation, sync, mode, publish, lookups, existing:[{id,title}], fileSet:Set(lowercase basenames),
+   *         maxFilesPerRow (optional: files the web server accepts per request) }
    * returns { rows:[{i,row,title,severity,bucket,isDup,dupOf,issues}], counts, blocking }
    */
   function preflight(rows, mapping, ctx) {
@@ -129,6 +130,7 @@
     const catIds = new Set((lookups && lookups.categories || []).map((c) => c.id));
     const licIds = new Set((lookups && lookups.licenses || []).map((l) => (l.value !== undefined ? l.value : l.id)));
     const fileSet = ctx.fileSet || null;
+    const maxFiles = ctx.maxFilesPerRow || 0; // 0 = no cap
     const needsId = ['update', 'addfiles', 'publish', 'delete'].includes(op);
 
     const existLower = new Map(), existNorm = new Map();
@@ -158,6 +160,7 @@
       if (needsId) {
         const matched = b.articleId || existLower.get(tl);
         if (!matched) { issues.push('No Article ID and no matching title on Figshare'); bump('error'); }
+        else if (b.articleId && !/^[1-9][0-9]{0,15}$/.test(String(b.articleId).trim())) { issues.push('Article ID "' + b.articleId + '" is not a Figshare ID (must be a number)'); bump('error'); }
         else if (!b.articleId) { issues.push('Matched existing by title (ID ' + matched + ')'); }
       }
       if (tn) {
@@ -178,6 +181,10 @@
       if (b.meta.defined_type && !ITEM_TYPES.includes(String(b.meta.defined_type).toLowerCase())) { issues.push('Unusual item type "' + b.meta.defined_type + '"'); bump('warn'); }
       if (mode === 'files' || op === 'addfiles') {
         if (!b.fileNames.length) { issues.push('No file referenced'); bump('warn'); }
+        // Web server request cap (the CLI uploads files one by one and passes no cap). A row that
+        // will be skipped as an existing duplicate uploads nothing, so it is not held to it.
+        const willSkip = op === 'create' && sync === 'skip' && !!(existLower.get(tl) || existNorm.get(tn));
+        if (maxFiles && !willSkip && b.fileNames.length > maxFiles) { issues.push(`Too many files for one item (${b.fileNames.length}; the limit is ${maxFiles})`); bump('error'); }
         b.fileNames.forEach((n) => { if (fileSet && !fileSet.has(baseName(n).toLowerCase())) { issues.push('File not available: ' + baseName(n)); bump('error'); } });
       }
       if (publish && (op === 'create' || op === 'update') && !(b.meta.categories && b.meta.categories.length)) {
