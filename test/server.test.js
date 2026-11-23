@@ -24,7 +24,7 @@ before(async () => {
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
   const existing = tmpDirs();
-  proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NO_UPDATE_CHECK: '1' }, stdio: 'ignore' });
+  proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NO_UPDATE_CHECK: '1', ALLOWED_HOSTS: '', TRUST_PROXY: '' }, stdio: 'ignore' });
   for (let i = 0; i < 50; i++) {
     try {
       const r = await fetch(`${base}/api/health`);

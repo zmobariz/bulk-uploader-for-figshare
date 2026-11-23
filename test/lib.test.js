@@ -34,8 +34,10 @@ test('guard behind a trusted reverse proxy: one effective host for allow-list an
   assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk', origin: 'https://uploader.example.ac.uk' })), 'next');
   // a catch-all proxy forwarding an unlisted alias is refused, even with a matching Origin
   assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'alias.example', origin: 'https://alias.example' })), 421);
-  // nginx $host drops a non-default port; $http_host keeps it; explicit :443 matches the default
-  assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk', origin: 'https://uploader.example.ac.uk:8443' })), 'next');
+  // a bare host means the default port (never "any port"); $http_host forwards a non-default one;
+  // an explicit :443 matches the default
+  assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk', origin: 'https://uploader.example.ac.uk' })), 'next');
+  assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk', origin: 'https://uploader.example.ac.uk:8443' })), 403);
   assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk:8443', origin: 'https://uploader.example.ac.uk:8443' })), 'next');
   assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk:443', origin: 'https://uploader.example.ac.uk' })), 'next');
   assert.equal(runGuard(mw, h({ 'x-forwarded-host': 'uploader.example.ac.uk:8443', origin: 'https://uploader.example.ac.uk:9443' })), 403);
@@ -97,9 +99,26 @@ test('pre-flight blocks rows with more files than the server accepts', () => {
   const names = Array.from({ length: fig.MAX_FILES_PER_ROW + 1 }, (_, i) => `f${i}.txt`);
   const mapping = { fields: { title: 'Title', files: 'Files' }, customFields: {}, defaults: { categories: [], license: null, defined_type: '', group_id: null } };
   const rows = [{ Title: 'Many files', Files: names.join(';') }];
-  const rep = M.preflight(rows, mapping, { operation: 'create', sync: 'create', mode: 'files', publish: false, lookups: null, existing: [], fileSet: new Set(names) });
+  const ctx = (o) => Object.assign({ operation: 'create', sync: 'create', mode: 'files', publish: false, lookups: null, existing: [], fileSet: new Set(names), maxFilesPerRow: fig.MAX_FILES_PER_ROW }, o);
+  const rep = M.preflight(rows, mapping, ctx({}));
   assert.equal(rep.blocking, true);
   assert.match(rep.rows[0].issues.join(' '), /Too many files/);
+  // a row that will be skipped as an existing duplicate uploads nothing: not held to the cap
+  const skip = M.preflight(rows, mapping, ctx({ sync: 'skip', existing: [{ id: 9, title: 'Many files' }] }));
+  assert.doesNotMatch(skip.rows[0].issues.join(' '), /Too many files/);
+  // the CLI passes no cap (it uploads files one by one)
+  const cli = M.preflight(rows, mapping, ctx({ maxFilesPerRow: undefined }));
+  assert.equal(cli.blocking, false);
+});
+
+test('results CSV neutralises formulas without changing delimiters', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'cli.js'), 'utf8');
+  const csvCell = new Function(`${src.match(/function csvCell[\s\S]*?\n}/)[0]}; return csvCell;`)();
+  assert.equal(csvCell('=HYPERLINK("http://x")'), `"'=HYPERLINK(""http://x"")"`);
+  for (const v of ['+1', '-1', '@SUM(A1)']) assert.equal(csvCell(v), "'" + v);
+  assert.equal(csvCell('plain title'), 'plain title');
+  assert.equal(csvCell('a,b'), '"a,b"');
+  assert.equal(csvCell('Sample;'), 'Sample;'); // not quoted: quoting here breaks ;-delimited re-import
 });
 
 test('update.cmpVersion orders versions', () => {

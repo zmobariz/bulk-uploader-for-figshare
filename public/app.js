@@ -4,6 +4,7 @@
   const $ = (s) => document.querySelector(s);
   const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
   const M = window.FigMapping;
+  const MAX_FILES_PER_REQUEST = 500; // keep in step with lib/figshare.js MAX_FILES_PER_ROW (server limit)
   const LS_SETTINGS = 'fig_settings_v2';
   const LS_TEMPLATES = 'fig_templates_v2';
 
@@ -298,7 +299,7 @@
     } catch (e) { msg.innerHTML = `<div class="block err">Could not load Figshare data: ${esc(e.message)}</div>`; state.validated = false; refreshReadiness(); return; }
     msg.innerHTML = '';
 
-    const ctx = { operation: state.operation, sync: state.sync, mode: state.mode, publish: state.publish === 'true', lookups: state.lookups, existing: state.existingArticles || [], fileSet: new Set([...state.fileMap.keys()]) };
+    const ctx = { operation: state.operation, sync: state.sync, mode: state.mode, publish: state.publish === 'true', lookups: state.lookups, existing: state.existingArticles || [], fileSet: new Set([...state.fileMap.keys()]), maxFilesPerRow: MAX_FILES_PER_REQUEST };
     const rep = M.preflight(state.rows, state.mapping, ctx);
     state.validated = !rep.blocking && (state.operation !== 'delete' || $('#deleteConfirm').checked);
     renderPreflight(rep);
@@ -484,7 +485,7 @@
     let v = String(s);
     if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
     v = v.replace(/"/g, '""');
-    return /[",;\t\n\r]/.test(v) ? `"${v}"` : v; // ; and tab too: European-locale Excel splits on ;
+    return /[",\n\r]/.test(v) ? `"${v}"` : v;
   }
   function downloadFile(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = el('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
 

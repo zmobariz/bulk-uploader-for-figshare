@@ -8,9 +8,6 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  // Keep in step with lib/figshare.js MAX_FILES_PER_ROW (the server rejects more files per request).
-  const MAX_FILES_PER_ROW = 500;
-
   const FIG_FIELDS = [
     { key: 'title',        label: 'Title',                 type: 'string',  syn: ['title', 'name'] },
     { key: 'description',  label: 'Description',           type: 'string',  syn: ['description', 'abstract', 'summary'] },
@@ -119,7 +116,8 @@
 
   /**
    * Pre-flight: validate every row before any upload.
-   * ctx = { operation, sync, mode, publish, lookups, existing:[{id,title}], fileSet:Set(lowercase basenames) }
+   * ctx = { operation, sync, mode, publish, lookups, existing:[{id,title}], fileSet:Set(lowercase basenames),
+   *         maxFilesPerRow (optional: files the web server accepts per request) }
    * returns { rows:[{i,row,title,severity,bucket,isDup,dupOf,issues}], counts, blocking }
    */
   function preflight(rows, mapping, ctx) {
@@ -132,6 +130,7 @@
     const catIds = new Set((lookups && lookups.categories || []).map((c) => c.id));
     const licIds = new Set((lookups && lookups.licenses || []).map((l) => (l.value !== undefined ? l.value : l.id)));
     const fileSet = ctx.fileSet || null;
+    const maxFiles = ctx.maxFilesPerRow || 0; // 0 = no cap
     const needsId = ['update', 'addfiles', 'publish', 'delete'].includes(op);
 
     const existLower = new Map(), existNorm = new Map();
@@ -182,7 +181,10 @@
       if (b.meta.defined_type && !ITEM_TYPES.includes(String(b.meta.defined_type).toLowerCase())) { issues.push('Unusual item type "' + b.meta.defined_type + '"'); bump('warn'); }
       if (mode === 'files' || op === 'addfiles') {
         if (!b.fileNames.length) { issues.push('No file referenced'); bump('warn'); }
-        if (b.fileNames.length > MAX_FILES_PER_ROW) { issues.push(`Too many files for one item (${b.fileNames.length}; the limit is ${MAX_FILES_PER_ROW})`); bump('error'); }
+        // Web server request cap (the CLI uploads files one by one and passes no cap). A row that
+        // will be skipped as an existing duplicate uploads nothing, so it is not held to it.
+        const willSkip = op === 'create' && sync === 'skip' && !!(existLower.get(tl) || existNorm.get(tn));
+        if (maxFiles && !willSkip && b.fileNames.length > maxFiles) { issues.push(`Too many files for one item (${b.fileNames.length}; the limit is ${maxFiles})`); bump('error'); }
         b.fileNames.forEach((n) => { if (fileSet && !fileSet.has(baseName(n).toLowerCase())) { issues.push('File not available: ' + baseName(n)); bump('error'); } });
       }
       if (publish && (op === 'create' || op === 'update') && !(b.meta.categories && b.meta.categories.length)) {

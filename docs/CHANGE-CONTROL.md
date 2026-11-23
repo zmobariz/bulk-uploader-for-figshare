@@ -69,7 +69,7 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 ### Test evidence (23 Nov 2026)
 - **Dependencies:** `npm audit` reports 0 vulnerabilities; `npm ci` passes on npm 10 (Node 22) and
   npm 11 (Node 26).
-- **Automated suite** (`npm test`): 28/28 pass on Node 22 and Node 26, locally and in the Test
+- **Automated suite** (`npm test`): 29/29 pass on Node 22 and Node 26, locally and in the Test
   workflow. An earlier 17-test version of the suite, run against the previous code, failed 5 tests
   (CSP, Host check, cross-origin, Article ID, stack-trace error), which shows it detects the
   issues it guards against.
@@ -90,6 +90,14 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
     - signal handling inside Electron;
     - the edge cases: a file-count pre-flight check, a missing `TMPDIR`, input-error status
       codes, path matching, a double unlink, and test teardown.
+  - **Round 3** re-reviewed that commit. It found no new bypass, and 5 edge-case regressions in
+    round-2 changes, all fixed:
+    - a bare forwarded host acted as "any port";
+    - the file cap blocked rows that would be skipped, and applied to the CLI, which has no such
+      limit;
+    - quoting `;` in the CSV broke semicolon-delimited re-import, so it was reverted (see
+      residual risk);
+    - the tests inherited proxy settings from the environment.
 - **Desktop security smoke** (Electron 45.4.1, driven over the DevTools protocol): 18/18 pass. The
   same 18 checks and the 10 UI-flow checks also pass against the **CI-built Linux AppImage**
   (extracted; its SHA-512 matches `latest-linux.yml`) and against the trimmed local package.
@@ -133,6 +141,12 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
   Removing this risk needs either paid code signing (electron-updater then checks the publisher)
   or in-app Sigstore verification. That is tracked as a follow-up and is out of scope for this
   change.
+- **Results CSV opened with a non-comma delimiter.** Cells are neutralised against formulas
+  (a leading `=`, `+`, `-`, `@`, tab or CR gets a `'`), which is the standard mitigation for a
+  comma-separated file. If the file is opened as semicolon- or tab-delimited, for example by Excel
+  in some European locales, a title containing `;=…` could split into a new cell that starts with
+  a formula. Quoting such cells was tried and broke semicolon-delimited re-import, so it was
+  reverted. Excel users should use the XLSX write-back export, which stores every value as text.
 
 ### Implementation
 1. Merge #60 to `main` (Test and CodeQL green).
