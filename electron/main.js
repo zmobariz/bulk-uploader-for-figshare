@@ -50,7 +50,9 @@ function wireUpdater(win) {
 
   if (autoUpdater) {
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Never install silently: a downloaded update is applied only when the user
+    // clicks "Restart to update" (as documented in ASSURANCE.md).
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.on('checking-for-update', () => send('checking'));
     autoUpdater.on('update-available', (i) => send('available', { version: i && i.version }));
     autoUpdater.on('update-not-available', () => send('none'));
@@ -59,25 +61,55 @@ function wireUpdater(win) {
     autoUpdater.on('error', (e) => send('error', { message: String((e && e.message) || e) }));
   }
 
-  ipcMain.on('updater:check', () => {
+  // Only our own UI (the main window's top frame, on the local server origin) may drive the updater.
+  const fromApp = (e) => !!(win && !win.isDestroyed() && e.sender === win.webContents && e.senderFrame
+    && e.senderFrame === win.webContents.mainFrame && isAppUrl(e.senderFrame.url));
+
+  ipcMain.on('updater:check', (e) => {
+    if (!fromApp(e)) return;
     if (!enabled) return send('error'); // -> renderer shows the "Download" notify banner instead
-    try { autoUpdater.checkForUpdates().catch((e) => send('error', { message: String((e && e.message) || e) })); }
-    catch (e) { send('error', { message: String((e && e.message) || e) }); }
+    try { autoUpdater.checkForUpdates().catch((err) => send('error', { message: String((err && err.message) || err) })); }
+    catch (err) { send('error', { message: String((err && err.message) || err) }); }
   });
-  ipcMain.on('updater:restart', () => { try { autoUpdater && autoUpdater.quitAndInstall(); } catch (e) {} });
-  ipcMain.on('updater:open-releases', () => { shell.openExternal(RELEASES_URL); });
+  ipcMain.on('updater:restart', (e) => { if (!fromApp(e)) return; try { autoUpdater && autoUpdater.quitAndInstall(); } catch (err) {} });
+  ipcMain.on('updater:open-releases', (e) => { if (fromApp(e)) shell.openExternal(RELEASES_URL); });
 }
 
 let win;
+let appOrigin = null; // http://127.0.0.1:<port>, set once the server port is known
+const isAppUrl = (u) => { try { return new URL(u).origin === appOrigin; } catch (e) { return false; } };
+const isHttpsUrl = (u) => { try { return new URL(u).protocol === 'https:'; } catch (e) { return false; } };
+
+// Defence in depth for the renderer: it may only ever show our local UI.
+app.on('web-contents-created', (_e, contents) => {
+  // Links with target=_blank open in the user's browser (https only), never in an Electron window.
+  contents.setWindowOpenHandler(({ url }) => { if (isHttpsUrl(url)) shell.openExternal(url); return { action: 'deny' }; });
+  // No navigating the app window away from the local UI.
+  contents.on('will-navigate', (ev, url) => { if (!isAppUrl(url)) { ev.preventDefault(); if (isHttpsUrl(url)) shell.openExternal(url); } });
+  contents.on('will-redirect', (ev, url) => { if (!isAppUrl(url)) ev.preventDefault(); });
+  contents.on('will-attach-webview', (ev) => ev.preventDefault());
+});
+
 async function createWindow() {
   const port = await findFreePort();
   process.env.PORT = String(port);
+  appOrigin = `http://127.0.0.1:${port}`;
   require(path.join(__dirname, '..', 'server.js'));
+
+  // The app needs no camera, mic, notifications, HID/USB/serial, etc.
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  if (session.defaultSession.setDevicePermissionHandler) session.defaultSession.setDevicePermissionHandler(() => false);
 
   win = new BrowserWindow({
     width: 1120, height: 920, minWidth: 720, minHeight: 600,
     title: 'Bulk Uploader for Figshare', backgroundColor: '#f6f7fb',
-    webPreferences: { contextIsolation: true, preload: path.join(__dirname, 'preload.js') },
+    webPreferences: {
+      contextIsolation: true, sandbox: true, nodeIntegration: false, nodeIntegrationInWorker: false,
+      webSecurity: true, webviewTag: false, spellcheck: false,
+      preload: path.join(__dirname, 'preload.js'),
+    },
   });
   if (win.removeMenu) win.removeMenu();
   wireUpdater(win);

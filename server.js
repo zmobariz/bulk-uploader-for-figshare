@@ -3,6 +3,7 @@
  * Serves the SPA and proxies/orchestrates the Figshare API.
  * Tokens are supplied per request and never written to disk or logged.
  */
+const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
@@ -11,21 +12,27 @@ const os = require('os');
 const path = require('path');
 const fig = require('./lib/figshare');
 const update = require('./lib/update');
+const guard = require('./lib/guard');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || '127.0.0.1'; // loopback by default; Docker sets 0.0.0.0
 
 const TMP_DIR = path.join(os.tmpdir(), 'figshare-uploader-tmp');
-fs.mkdirSync(TMP_DIR, { recursive: true });
+fs.mkdirSync(TMP_DIR, { recursive: true, mode: 0o700 });
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_q, _f, cb) => cb(null, TMP_DIR),
-    filename: (_q, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.originalname}`),
+    // Random on-disk name: the client-supplied name never touches the filesystem
+    // (it is kept only as file.originalname and sent to Figshare as the file's name).
+    filename: (_q, _f, cb) => cb(null, crypto.randomUUID()),
   }),
   limits: { fileSize: 1024 * 1024 * 1024 * 20 },
 });
 
+app.disable('x-powered-by');
+app.use(guard.securityHeaders);
+app.use(guard.hostAndOrigin(guard.allowedHosts(process.env.ALLOWED_HOSTS)));
 app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/samples', express.static(path.join(__dirname, 'samples')));
@@ -52,10 +59,12 @@ app.post('/api/test-token', async (req, res) => {
 app.post('/api/lookups', async (req, res) => {
   const { token, baseUrl } = req.body || {};
   if (!token) return res.status(400).json({ ok: false, error: 'Token is required.' });
-  const [categories, licenses, customFields] = await Promise.all([
-    fig.getCategories(baseUrl, token), fig.getLicenses(baseUrl, token), fig.getCustomFields(baseUrl, token),
-  ]);
-  res.json({ ok: true, categories, licenses, customFields });
+  try {
+    const [categories, licenses, customFields] = await Promise.all([
+      fig.getCategories(baseUrl, token), fig.getLicenses(baseUrl, token), fig.getCustomFields(baseUrl, token),
+    ]);
+    res.json({ ok: true, categories, licenses, customFields });
+  } catch (e) { fail(res, e); }
 });
 
 // List the account's existing articles (for de-dup / update-by-title).
@@ -74,6 +83,7 @@ app.post('/api/process', upload.array('files'), async (req, res) => {
   try {
     const b = req.body;
     if (!b.token) throw new Error('Token is required.');
+    if (b.articleId && !guard.isArticleId(b.articleId)) { const err = new Error('Article ID must be a number.'); err.status = 400; throw err; }
     let metadata = {};
     if (b.metadata) { try { metadata = JSON.parse(b.metadata); } catch { throw new Error('Invalid metadata payload.'); } }
     let embargo = null;
@@ -99,6 +109,13 @@ app.post('/api/process', upload.array('files'), async (req, res) => {
     });
   } catch (e) { fail(res, e); }
   finally { await Promise.all(files.map((f) => safeUnlink(f.path))); }
+});
+
+// Last-resort handler: generic JSON, never a stack trace.
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  const status = err.name === 'MulterError' ? 400 : (err.status || err.statusCode || 500);
+  res.status(status).json({ ok: false, error: status < 500 ? err.message : 'Internal error' });
 });
 
 app.listen(PORT, HOST, () => {

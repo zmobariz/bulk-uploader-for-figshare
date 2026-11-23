@@ -322,8 +322,8 @@
       issues.forEach((r) => {
         const label = r.bucket === 'dup' ? 'Duplicate' : r.bucket === 'error' ? 'Error' : 'Warning';
         let link = '';
-        if (r.dupOf && String(r.dupOf).indexOf('fig:') === 0) { const id = String(r.dupOf).slice(4); link = ` <a class="res-link" href="https://figshare.com/account/articles/${id}" target="_blank" rel="noopener">view existing</a>`; }
-        html += `<tr><td>${r.row}</td><td class="trunc">${esc(r.title || '(no title)')}</td><td><span class="status-pill ${r.bucket}">${label}</span></td><td>${esc(r.issues.join(' · '))}${link}</td></tr>`;
+        if (r.dupOf && String(r.dupOf).indexOf('fig:') === 0) { const id = String(r.dupOf).slice(4); if (/^\d+$/.test(id)) link = ` <a class="res-link" href="https://figshare.com/account/articles/${id}" target="_blank" rel="noopener noreferrer">view existing</a>`; }
+        html += `<tr><td>${esc(r.row)}</td><td class="trunc">${esc(r.title || '(no title)')}</td><td><span class="status-pill ${r.bucket}">${label}</span></td><td>${esc(r.issues.join(' · '))}${link}</td></tr>`;
       });
       html += '</tbody></table></div>';
     }
@@ -374,7 +374,7 @@
 
     if (op === 'create' && state.sync !== 'create' && title && state.existingByTitle.has(title)) {
       const ex = state.existingByTitle.get(title);
-      if (state.sync === 'skip') { markRow(i, 'skip', `Skipped — exists (ID ${ex})`); state.results[i] = { row: i + 1, title: b.meta.title, status: 'skipped', articleId: ex }; return; }
+      if (state.sync === 'skip') { markRow(i, 'skip', `Skipped — exists (ID ${esc(ex)})`); state.results[i] = { row: i + 1, title: b.meta.title, status: 'skipped', articleId: ex }; return; }
       if (state.sync === 'update') { op = 'update'; articleId = ex; }
     } else if (needsId() && !articleId && title) {
       articleId = state.existingByTitle.get(title) || null;
@@ -395,10 +395,13 @@
       if (!j.ok) throw new Error(j.error || 'Failed');
       const url = j.publishedUrl || j.privateUrl;
       const linkLabel = j.published ? 'View published' : (j.action === 'deleted' ? 'Deleted' : 'View');
-      let extra = j.uploaded && j.uploaded.length ? ` · ${j.uploaded.length} file(s)` : '';
-      if (j.doi) extra += ` · DOI ${j.doi}`;
-      if (j.warnings && j.warnings.length) extra += ` · ⚠ ${j.warnings.join('; ')}`;
-      const resultHtml = j.action === 'deleted' ? `Deleted (ID ${j.articleId})` : `<a class="res-link" href="${url}" target="_blank" rel="noopener">${linkLabel}</a> (ID ${j.articleId})${extra}`;
+      // Every value below comes from the server / Figshare: escape all of it, and only link to https Figshare URLs.
+      let extra = j.uploaded && j.uploaded.length ? ` · ${esc(j.uploaded.length)} file(s)` : '';
+      if (j.doi) extra += ` · DOI ${esc(j.doi)}`;
+      if (j.warnings && j.warnings.length) extra += ` · ⚠ ${esc(j.warnings.join('; '))}`;
+      const idText = esc(j.articleId);
+      const link = safeFigshareUrl(url) ? `<a class="res-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a> ` : '';
+      const resultHtml = j.action === 'deleted' ? `Deleted (ID ${idText})` : `${link}(ID ${idText})${extra}`;
       markRow(i, 'done', resultHtml, j.action);
       state.results[i] = { row: i + 1, title: b.meta.title || '', status: j.action, articleId: j.articleId || '', doi: j.doi || '', url, files: (j.uploaded || []).length, warnings: (j.warnings || []).join('; ') };
     } catch (e) {
@@ -469,6 +472,9 @@
   }
   function fmtSize(b) { if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function safeFigshareUrl(u) {
+    try { const x = new URL(String(u)); const h = x.hostname.toLowerCase(); return x.protocol === 'https:' && (h === 'figshare.com' || h.endsWith('.figshare.com')); } catch (e) { return false; }
+  }
   function csv(s) { const v = String(s).replace(/"/g, '""'); return /[",\n]/.test(v) ? `"${v}"` : v; }
   function downloadFile(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = el('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
 
@@ -497,7 +503,7 @@
     UB.text.textContent = msg;
     UB.download.classList.toggle('hidden', !opts.showDownload);
     UB.restart.classList.toggle('hidden', !opts.showRestart);
-    if (opts.url) UB.download.href = opts.url;
+    if (opts.url && String(opts.url).startsWith('https://github.com/')) UB.download.href = opts.url;
     UB.banner.classList.remove('hidden');
   }
   function hideBanner() { if (UB.banner) UB.banner.classList.add('hidden'); }

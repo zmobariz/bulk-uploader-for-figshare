@@ -3,6 +3,35 @@
 All notable changes to this project. Releases are published at
 https://github.com/zmobariz/bulk-uploader-for-figshare/releases
 
+## 2.2.0 — security hardening + platform upgrade
+Change record: [CR-2026-11-23-01](docs/CHANGE-CONTROL.md#cr-2026-11-23-01).
+
+**Application security fixes**
+- **Fixed reflected XSS in the results table.** A spreadsheet "Article ID" cell such as `1<img src=x onerror=…>` was echoed back by the server and rendered as HTML (most directly with *Add files* and no attachments). Article IDs are now validated as positive integers on the server, and every server/Figshare-supplied value in the results (ID, DOI, warnings, links) is HTML-escaped; links are only rendered for `https://*.figshare.com` URLs.
+- **Content-Security-Policy** on every response: scripts only from the app itself (no inline script, no `eval`), `connect-src 'self'` (blocks exfiltration even if markup were injected), no framing, no plugins. Also `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP, a restrictive `Permissions-Policy`; `X-Powered-By` removed.
+- **DNS-rebinding defence:** requests whose `Host` header is not a loopback name are refused (HTTP 421). Hosted/Docker deployments reached by another name set `ALLOWED_HOSTS` (see README → Configuration).
+- **Cross-site request defence:** state-changing requests from another origin (`Origin` / `Sec-Fetch-Site`) are refused (HTTP 403), so a web page can no longer drive the local API with form posts.
+- Uploaded temp files now get random names (the client file name never reaches the filesystem; temp dir is `0700`), and errors return generic JSON instead of an HTML stack trace. `/api/lookups` errors are handled.
+
+**Desktop (Electron) hardening**
+- Renderer explicitly sandboxed (`sandbox`, `contextIsolation`, no Node integration, no `<webview>`).
+- `window.open` / `target=_blank` links open in the system browser (https only) and never as an in-app window; the app window cannot navigate or redirect away from its own UI.
+- All permission requests (camera, microphone, location, HID/USB/serial, notifications…) are denied.
+- Updater IPC is accepted only from the app's own top-level page.
+- **Auto-update no longer installs silently on quit:** a downloaded update is applied only when the user clicks *Restart to update*, matching the assurance statement.
+
+**Platform & dependencies** — `npm audit`: 0 vulnerabilities
+- Electron 43 → **45.4.1** (current Chromium/Node runtime in the desktop apps); electron-builder 26.18.0; electron-updater 6.8.11; Express 5.3.0; multer 2.5.0. SheetJS 0.20.3 is already the latest release.
+- Clears all 34 open Dependabot alerts (proxy-addr 2.0.8 *critical*; undici 6.29.1 / 7.30.2; body-parser 2.4.0; fast-uri 3.1.9; multer 2.5.0; Electron) plus `npm audit`-only advisories (qs, glob, brace-expansion, minimatch).
+- Overrides reduced to `@electron/asar ^4.3.2` and `minimatch ^11.0.1` (the `tar` override is no longer needed).
+- Docker base image `node:22-alpine` → **`node:26-alpine`** (current LTS, digest-pinned); the image now installs with `npm ci` (exactly the lockfile).
+
+**Build, release & CI**
+- Release workflow on Node 26 and `npm ci`; GitHub Actions updated to current pinned SHAs (setup-node 7.1.0, upload-artifact 7.0.2, download-artifact 8.0.2, CodeQL 4.39.4, Scorecard 2.6.0, cosign-installer 4.1.3).
+- **Release signing format changed:** cosign v3 signs `SHA256SUMS.txt` as a Sigstore bundle, **`SHA256SUMS.txt.sigstore.json`** (replacing `.sig` + `.pem`). Verification steps in `ASSURANCE.md` now pin the release workflow identity.
+- Dependabot groups GitHub Actions updates (CodeQL `init`/`analyze` must move together).
+- New automated test suite (`npm test`, Node's built-in runner, offline): 17 tests covering the CSP/headers, Host and Origin checks, SSRF allow-list, Article ID validation, upload temp-file handling and error responses.
+
 ## 2.1.3 — security (dependencies)
 - multer 2.2.0 → 2.3.0 (runtime): fixes a file-descriptor leak on aborted uploads (GHSA-qfvm-cv95-jqjf) plus GHSA-wc9g-mqfw-jrwm, GHSA-qvfw-j98x-7q72 and GHSA-535w-7cp7-47q4; minimum range raised to `^2.3.0`.
 - qs 6.15.3 → 6.16.0 (runtime, via Express): GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g.
