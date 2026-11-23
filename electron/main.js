@@ -12,38 +12,6 @@
  */
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
-const net = require('net');
-const http = require('http');
-const APP_VERSION = require('../package.json').version; // the same file server.js reports in /api/health
-
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.on('error', reject);
-    srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); });
-  });
-}
-
-function waitForServer(port, timeoutMs) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const tryOnce = () => {
-      const retry = () => { (Date.now() - start > timeoutMs) ? reject(new Error('server timeout')) : setTimeout(tryOnce, 250); };
-      // Only accept OUR server: the health endpoint must report this app's exact version.
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', timeout: 1000 }, (res) => {
-        let body = ''; res.setEncoding('utf8');
-        res.on('data', (c) => { if (body.length < 4096) body += c; });
-        res.on('end', () => {
-          let j = null; try { j = JSON.parse(body); } catch (e) { /* not ours */ }
-          if (j && j.ok === true && j.version === APP_VERSION) resolve(); else retry();
-        });
-      });
-      req.on('error', retry);
-      req.on('timeout', () => req.destroy());
-    };
-    tryOnce();
-  });
-}
 
 const RELEASES_URL = 'https://github.com/zmobariz/bulk-uploader-for-figshare/releases';
 
@@ -102,21 +70,21 @@ app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (ev) => ev.preventDefault());
 });
 
-// Runs once: start the in-process server, verify it, then open the window.
+// Runs once: start the in-process server, then open the window.
 async function startApp() {
-  const port = await findFreePort();
-  process.env.PORT = String(port);
-  appOrigin = `http://127.0.0.1:${port}`;
-  require(path.join(__dirname, '..', 'server.js'));
-
   // The app needs no camera, mic, notifications, HID/USB/serial, etc.
   const { session } = require('electron');
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   if (session.defaultSession.setDevicePermissionHandler) session.defaultSession.setDevicePermissionHandler(() => false);
 
-  try { await waitForServer(port, 20000); } catch (e) {
-    dialog.showErrorBox('Bulk Uploader for Figshare', 'The app could not start its local server. Please restart it.');
+  // Bind port 0: the OS hands this process a free port that it then owns, so there is no
+  // window in which another process could take the port and receive the user's token.
+  try {
+    const { port } = await require(path.join(__dirname, '..', 'server.js')).start(0, '127.0.0.1');
+    appOrigin = `http://127.0.0.1:${port}`;
+  } catch (e) {
+    dialog.showErrorBox('Bulk Uploader for Figshare', `The app could not start its local server (${(e && (e.code || e.message)) || e}). Please restart it.`);
     app.quit(); return;
   }
   wireUpdater();

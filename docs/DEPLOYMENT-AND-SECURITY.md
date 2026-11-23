@@ -60,12 +60,13 @@ reverse proxy or `http://uploader.example.ac.uk`), set **`ALLOWED_HOSTS`** to th
 (comma-separated). Put it behind HTTPS and your own authentication: the app has no user accounts,
 and anyone who can reach it can use it with **their own** Figshare token (tokens are never stored).
 
-Behind a reverse proxy that rewrites `Host`, forward the public host and scheme so the app can
-recognise its own pages' requests. Otherwise uploads are refused as cross-origin (HTTP 403).
-nginx example:
+Behind a reverse proxy, set **`TRUST_PROXY=1`** and have the proxy forward the public host and
+scheme. The app then uses them for both the `ALLOWED_HOSTS` check and the cross-origin check. Do
+not set `TRUST_PROXY` when the app is reachable directly, because anyone could then supply these
+headers. nginx example:
 
 ```nginx
-proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header X-Forwarded-Host  $http_host;   # keeps a non-default port such as :8443
 proxy_set_header X-Forwarded-Proto $scheme;
 ```
 

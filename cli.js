@@ -59,7 +59,7 @@ function csvCell(s) {
   let v = String(s == null ? '' : s);
   if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
   v = v.replace(/"/g, '""');
-  return /[",\n\r]/.test(v) ? `"${v}"` : v;
+  return /[",;\t\n\r]/.test(v) ? `"${v}"` : v; // ; and tab too: European-locale Excel splits on ;
 }
 
 (async function main() {

@@ -8,6 +8,9 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
+  // Keep in step with lib/figshare.js MAX_FILES_PER_ROW (the server rejects more files per request).
+  const MAX_FILES_PER_ROW = 500;
+
   const FIG_FIELDS = [
     { key: 'title',        label: 'Title',                 type: 'string',  syn: ['title', 'name'] },
     { key: 'description',  label: 'Description',           type: 'string',  syn: ['description', 'abstract', 'summary'] },
@@ -179,6 +182,7 @@
       if (b.meta.defined_type && !ITEM_TYPES.includes(String(b.meta.defined_type).toLowerCase())) { issues.push('Unusual item type "' + b.meta.defined_type + '"'); bump('warn'); }
       if (mode === 'files' || op === 'addfiles') {
         if (!b.fileNames.length) { issues.push('No file referenced'); bump('warn'); }
+        if (b.fileNames.length > MAX_FILES_PER_ROW) { issues.push(`Too many files for one item (${b.fileNames.length}; the limit is ${MAX_FILES_PER_ROW})`); bump('error'); }
         b.fileNames.forEach((n) => { if (fileSet && !fileSet.has(baseName(n).toLowerCase())) { issues.push('File not available: ' + baseName(n)); bump('error'); } });
       }
       if (publish && (op === 'create' || op === 'update') && !(b.meta.categories && b.meta.categories.length)) {

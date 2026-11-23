@@ -484,7 +484,7 @@
     let v = String(s);
     if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
     v = v.replace(/"/g, '""');
-    return /[",\n\r]/.test(v) ? `"${v}"` : v;
+    return /[",;\t\n\r]/.test(v) ? `"${v}"` : v; // ; and tab too: European-locale Excel splits on ;
   }
   function downloadFile(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = el('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
 

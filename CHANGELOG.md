@@ -12,14 +12,16 @@ Change record: [CR-2026-11-23-01](docs/CHANGE-CONTROL.md#cr-2026-11-23-01).
 - **Results CSV (web and CLI): formula injection neutralised.** Cells starting with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'`, so a title like `=HYPERLINK(…)` stays text in Excel or LibreOffice.
 - **Content-Security-Policy** on every response: scripts only from the app itself (no inline script, no `eval`), `connect-src 'self'` (blocks exfiltration even if markup were injected), no framing, no plugins. Also `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP, a restrictive `Permissions-Policy`; `X-Powered-By` removed.
 - **DNS-rebinding defence:** requests whose `Host` header is not a loopback name are refused (HTTP 421). Hosted/Docker deployments reached by another name set `ALLOWED_HOSTS` (see README → Configuration).
-- **Cross-site request defence:** state-changing requests from another origin are refused (HTTP 403), so a web page can no longer drive the local API with form posts. The check uses `Origin` (scheme and host) and `Sec-Fetch-Site`. Behind a reverse proxy, `X-Forwarded-Host` / `X-Forwarded-Proto` are honoured.
+- **Cross-site request defence:** state-changing requests from another origin are refused (HTTP 403), so a web page can no longer drive the local API with form posts. The check uses `Origin` (scheme, host and port) and `Sec-Fetch-Site`. Behind a reverse proxy, set `TRUST_PROXY=1`: `X-Forwarded-Host` / `X-Forwarded-Proto` then supply the one host used for both the allow-list and the Origin check. They are ignored otherwise.
 - **Uploads:**
   - Temp files go in a private per-process directory, created `0700` and removed on exit.
   - Files get random names, so the client file name never reaches the filesystem.
   - Every temp file is removed on every path, including a write error part-way through.
-  - The token must arrive before any file is written.
-  - At most 500 files per request.
-- Errors return generic JSON instead of an HTML stack trace, and a malformed multipart body returns 400. `/api/lookups` errors are handled.
+  - A single non-empty token must arrive before any file is written.
+  - At most 500 files per request; pre-flight flags rows with more.
+- Errors return generic JSON instead of an HTML stack trace. Malformed multipart bodies and other input errors return 400 (not 500/502). `/api/lookups` errors are handled.
+- Results CSV also quotes `;` and tab, so European-locale Excel (which splits on `;`) cannot expose an unchecked formula cell.
+- A port already in use now fails with a clear error instead of being ignored.
 
 **Desktop (Electron) hardening**
 - Renderer explicitly sandboxed (`sandbox`, `contextIsolation`, no Node integration, no `<webview>`).
@@ -27,7 +29,7 @@ Change record: [CR-2026-11-23-01](docs/CHANGE-CONTROL.md#cr-2026-11-23-01).
 - All permission requests (camera, microphone, location, HID/USB/serial, notifications…) are denied.
 - Updater IPC is accepted only from the app's own top-level page.
 - **Auto-update no longer installs silently on quit:** a downloaded update is applied only when the user clicks *Restart to update*, matching the assurance statement.
-- The local server is started once and verified as this app (health check must report the app's own version) before the window loads. Reopening the window on macOS now reuses that server instead of pointing at an unused port.
+- The local server binds an OS-assigned port that the app itself owns. Previously the app picked a free port, released it, then bound it, so another process could take the port in between and receive the user's token. The server is started once, and reopening the window on macOS reuses it instead of pointing at an unused port. Electron's own quit lifecycle handles signals.
 - Desktop packages contain only the runtime files (no tests, docs, Dockerfile or CI config).
 
 **Platform & dependencies** — `npm audit`: 0 vulnerabilities
@@ -40,7 +42,7 @@ Change record: [CR-2026-11-23-01](docs/CHANGE-CONTROL.md#cr-2026-11-23-01).
 - Release workflow on Node 26 and `npm ci`; GitHub Actions updated to current pinned SHAs (setup-node 7.1.0, upload-artifact 7.0.2, download-artifact 8.0.2, CodeQL 4.39.4, Scorecard 2.6.0, cosign-installer 4.1.3).
 - **Release signing format changed:** cosign v3 signs `SHA256SUMS.txt` as a Sigstore bundle, **`SHA256SUMS.txt.sigstore.json`** (replacing `.sig` + `.pem`). Verification steps in `ASSURANCE.md` now pin the release workflow identity.
 - Dependabot groups GitHub Actions updates (CodeQL `init`/`analyze` must move together).
-- New automated test suite (`npm test`, Node's built-in runner, offline). Its 23 tests cover the CSP and headers, Host and Origin checks (including a reverse proxy), the SSRF allow-list, Article ID validation and pre-flight, upload temp-file handling and error responses. A new Test workflow runs it on Node 22 and 26 with `npm audit` and a Docker build on every pull request.
+- New automated test suite (`npm test`, Node's built-in runner, offline). Its 28 tests cover the CSP and headers, Host and Origin checks (including trusted-proxy scenarios), the SSRF allow-list, Article ID validation and pre-flight, upload temp-file handling and error responses. A new Test workflow runs it on Node 22 and 26 with `npm audit` and a Docker build on every pull request.
 
 ## 2.1.3 — security (dependencies)
 - multer 2.2.0 → 2.3.0 (runtime): fixes a file-descriptor leak on aborted uploads (GHSA-qfvm-cv95-jqjf) plus GHSA-wc9g-mqfw-jrwm, GHSA-qvfw-j98x-7q72 and GHSA-535w-7cp7-47q4; minimum range raised to `^2.3.0`.

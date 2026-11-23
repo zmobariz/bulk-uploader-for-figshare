@@ -41,8 +41,10 @@ before(async () => {
 });
 after(async () => {
   if (!proc) return;
-  const exited = new Promise((r) => proc.once('exit', r));
-  proc.kill('SIGTERM'); await exited;
+  if (proc.exitCode === null && proc.signalCode === null) {
+    const exited = new Promise((r) => proc.once('exit', r));
+    proc.kill('SIGTERM'); await exited;
+  }
   if (process.platform !== 'win32') assert.equal(fs.existsSync(TMP_DIR), false, 'temp dir removed on shutdown');
 });
 
@@ -94,20 +96,34 @@ test('cross-origin POST is refused (CSRF defence)', async () => {
   assert.equal(r4.status, 403);
 });
 
-test('reverse proxy: Origin matching X-Forwarded-Host is accepted, a mismatch is not', async () => {
+test('forwarded headers are ignored unless TRUST_PROXY=1 (a rebinding page could set them)', async () => {
   const body = JSON.stringify({});
-  const hdr = (origin, fwd) => ({ method: 'POST', path: '/api/test-token', headers: { host: `127.0.0.1:${port}`, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), origin, 'x-forwarded-host': fwd } });
-  const req = (origin, fwd, proto) => { const o = hdr(origin, fwd); if (proto) o.headers['x-forwarded-proto'] = proto; return o; };
-  const ok = await raw(req('https://uploader.example.ac.uk', 'uploader.example.ac.uk', 'https'), body);
-  assert.equal(ok.status, 400); // reached the handler
-  const bad = await raw(req('https://attacker.example', 'uploader.example.ac.uk', 'https'), body);
-  assert.equal(bad.status, 403);
-  // scheme must match too: an http:// page cannot post to the https:// deployment
-  const scheme = await raw(req('http://uploader.example.ac.uk', 'uploader.example.ac.uk', 'https'), body);
-  assert.equal(scheme.status, 403);
-  // direct (no proxy): the server only speaks http, so an https Origin for the same host is foreign
+  const r = await raw({ method: 'POST', path: '/api/test-token', headers: { host: `127.0.0.1:${port}`, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), origin: 'https://uploader.example.ac.uk', 'x-forwarded-host': 'uploader.example.ac.uk', 'x-forwarded-proto': 'https' } }, body);
+  assert.equal(r.status, 403);
+  const g = await raw({ path: '/api/health', headers: { host: 'attacker.example', 'x-forwarded-host': 'localhost' } });
+  assert.equal(g.status, 421);
+  // direct: the server only speaks http, so an https Origin for the same host is foreign
   const direct = await postJson('/api/test-token', {}, { origin: `https://127.0.0.1:${port}` });
   assert.equal(direct.status, 403);
+});
+
+test('empty, whitespace or repeated token fields never reach file storage', async () => {
+  for (const tokens of [['   '], ['', ''], ['a', 'b']]) {
+    const fd = new FormData();
+    tokens.forEach((t) => fd.append('token', t));
+    fd.append('operation', 'addfiles'); fd.append('articleId', '1');
+    fd.append('files', new Blob(['x']), 'a.bin');
+    const r = await fetch(`${base}/api/process`, { method: 'POST', body: fd });
+    assert.equal(r.status, 400, JSON.stringify(tokens));
+    assert.deepEqual(fs.readdirSync(TMP_DIR), [], JSON.stringify(tokens));
+  }
+});
+
+test('input errors are 400 (not 502): blank Article ID for add-files', async () => {
+  const fd = new FormData(); fd.append('token', 'x'); fd.append('operation', 'addfiles'); fd.append('articleId', '   ');
+  const r = await fetch(`${base}/api/process`, { method: 'POST', body: fd });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /needs an Article ID/);
 });
 
 test('same-origin POST is accepted', async () => {
@@ -155,10 +171,12 @@ test('private temp dir (0700) and no file is written without a token', async () 
   assert.deepEqual(fs.readdirSync(TMP_DIR), []);
 });
 
-test('malformed multipart body is a 400, not a 500', async () => {
-  const r = await fetch(`${base}/api/process`, { method: 'POST', headers: { 'content-type': 'multipart/form-data' }, body: 'garbage' });
-  assert.equal(r.status, 400);
-  assert.equal((await r.json()).ok, false);
+test('malformed multipart body is a 400, not a 500 (any path spelling)', async () => {
+  for (const p of ['/api/process', '/api/process/', '/API/PROCESS']) {
+    const r = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'multipart/form-data' }, body: 'garbage' });
+    assert.equal(r.status, 400, p);
+    assert.equal((await r.json()).ok, false);
+  }
 });
 
 test('uploads use random temp names, ignore path components and are cleaned up', async () => {

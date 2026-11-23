@@ -196,6 +196,7 @@ attaching, not sent as metadata).
 | `PORT` | `4000` | Server port. |
 | `HOST` | `127.0.0.1` | Bind address. Loopback by default; the Docker image sets `0.0.0.0`. |
 | `ALLOWED_HOSTS` | — | Extra host names the server answers to (comma-separated), e.g. a reverse-proxy name. Loopback names are always allowed; requests with any other `Host` header get HTTP 421 (DNS-rebinding defence). `*` disables the check. |
+| `TRUST_PROXY` | — | Set to `1` only behind a reverse proxy: the host and scheme are then taken from `X-Forwarded-Host` / `X-Forwarded-Proto` for the Host and Origin checks. Ignored otherwise. |
 | `NO_UPDATE_CHECK` | — | Set to `1` to disable the GitHub update check and desktop auto-update. |
 | `FIGSHARE_TOKEN` | — | CLI token (alternative to `--token`). |
 | `FIGSHARE_BASE` | api.figshare.com/v2 | CLI base URL. |

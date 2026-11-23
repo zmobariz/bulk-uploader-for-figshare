@@ -44,11 +44,11 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 ### Scope
 | Area | Change |
 | --- | --- |
-| Server (`server.js`, new `lib/guard.js`) | CSP and security headers; Host allow-list; cross-origin refusal (scheme and host; proxy-aware); private per-process `0700` temp dir; random temp names, tracked and removed on every path; token required before any file is written; 500-file cap; generic JSON errors (malformed multipart → 400) |
+| Server (`server.js`, new `lib/guard.js`) | CSP and security headers; Host allow-list; cross-origin refusal (scheme, host, port; one effective host behind a proxy, `TRUST_PROXY=1`); private per-process `0700` temp dir; random temp names, tracked and removed on every path; single non-empty token required before any file is written; 500-file cap; generic JSON errors (input errors → 400); `start()` binds an OS-assigned port; signal handlers only when standalone |
 | API core (`lib/figshare.js`) | Article ID must be a positive integer for update, publish, delete and add-files (shared by the web app and CLI); *Create* ignores a supplied ID |
 | UI (`public/app.js`, `public/shared.js`) | Escape every server/Figshare value in results and imported-mapping category IDs; only link to `https://*.figshare.com` / `*.figsh.com`; update banner only links to `https://github.com/`; pre-flight flags non-numeric IDs; results CSV neutralises formulas |
 | CLI (`cli.js`) | Results CSV neutralises formulas |
-| Desktop (`electron/main.js`, `electron-builder.yml`) | Explicit sandbox and context isolation; deny `window.open`, navigation, redirects and `<webview>`; deny all permissions; check the IPC sender; no silent install on quit; start and verify the server once (macOS reopen fix); package only runtime files |
+| Desktop (`electron/main.js`, `electron-builder.yml`) | Explicit sandbox and context isolation; deny `window.open`, navigation, redirects and `<webview>`; deny all permissions; check the IPC sender; no silent install on quit; in-process server on a port it owns (removes a port-takeover race), started once (macOS reopen fix); package only runtime files |
 | Dependencies | Electron 45.4.1, electron-builder 26.18.0, electron-updater 6.8.11, Express 5.3.0, multer 2.5.0; `npm audit` 0 |
 | Container | `node:26-alpine` (digest-pinned), `npm ci --omit=dev` |
 | CI / release | Node 26; `npm ci`; Actions updated (pinned SHAs); cosign v3 Sigstore bundle; new Test workflow; Dependabot groups Actions updates |
@@ -58,7 +58,7 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 | Change | Who is affected | Risk | Mitigation |
 | --- | --- | --- | --- |
 | Host allow-list (HTTP 421 for non-loopback `Host`) | Docker or server deployments reached by a hostname or LAN IP | Medium: those deployments stop answering until configured | Set `ALLOWED_HOSTS` (documented in README and the deployment notes). Desktop and `localhost` use are unaffected |
-| Cross-origin refusal (HTTP 403) | Anyone calling the API from another web origin; reverse proxies that rewrite `Host` | Low: not a supported use. A proxy must pass `X-Forwarded-Host` and `X-Forwarded-Proto` (nginx/Caddy/Traefik defaults or one line) | Documented in the deployment notes; covered by tests |
+| Cross-origin refusal (HTTP 403) | Anyone calling the API from another web origin; reverse-proxy deployments | Low: calling the API from another web origin is not a supported use. A proxied deployment sets `TRUST_PROXY=1` and forwards `X-Forwarded-Host` / `X-Forwarded-Proto` (Caddy/Traefik defaults, two lines for nginx) | Documented in README and the deployment notes; covered by tests |
 | Article ID must be a positive integer (update/publish/delete/add-files) | Spreadsheets with malformed IDs | Low: Figshare IDs are integers. Pre-flight now flags the row before anything is sent; *Create* ignores the column | Clear error text; tests |
 | Token required before files; 500-file cap | Clients that send files before the token field | Low: the bundled UI already sends the token first | None needed |
 | No install on quit | Windows installer and AppImage users | Low: updates apply only after *Restart to update* | Banner remains; matches the assurance statement |
@@ -69,7 +69,7 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 ### Test evidence (23 Nov 2026)
 - **Dependencies:** `npm audit` reports 0 vulnerabilities; `npm ci` passes on npm 10 (Node 22) and
   npm 11 (Node 26).
-- **Automated suite** (`npm test`): 23/23 pass on Node 22 and Node 26, locally and in the Test
+- **Automated suite** (`npm test`): 28/28 pass on Node 22 and Node 26, locally and in the Test
   workflow. An earlier 17-test version of the suite, run against the previous code, failed 5 tests
   (CSP, Host check, cross-origin, Article ID, stack-trace error), which shows it detects the
   issues it guards against.
@@ -80,6 +80,16 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
     cleanup; files written before token validation; macOS window reopen; error status codes;
     mapping-import escaping; CSV formula injection; staging (`figsh.com`) links.
   - 1 is accepted as residual risk (below).
+  - **Round 2** re-reviewed the fix commit and raised 7 findings plus 6 edge cases. All were
+    confirmed and fixed:
+    - a pre-existing pick-then-bind port race (another process could take the desktop app's port);
+    - a health-probe hang;
+    - proxy host and port handling, now one trusted effective host;
+    - whitespace or repeated token fields;
+    - CSV splitting on `;`;
+    - signal handling inside Electron;
+    - the edge cases: a file-count pre-flight check, a missing `TMPDIR`, input-error status
+      codes, path matching, a double unlink, and test teardown.
 - **Desktop security smoke** (Electron 45.4.1, driven over the DevTools protocol): 18/18 pass. The
   same 18 checks and the 10 UI-flow checks also pass against the **CI-built Linux AppImage**
   (extracted; its SHA-512 matches `latest-linux.yml`) and against the trimmed local package.
@@ -137,7 +147,7 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 - **Source / Docker:** `git revert` the merge commit of #60 (and #59 if needed) and rebuild the
   image. No data migration is involved, and the app stores no server-side state.
 - **Partial rollback:** a hosted deployment hit by the Host check can set `ALLOWED_HOSTS=*` as a
-  temporary measure, without rolling back.
+  temporary measure, without rolling back. One behind a proxy can set `TRUST_PROXY=1`.
 
 ### Post-implementation checks
 - [ ] The release workflow for `v2.2.0` succeeded on all three OSes.
