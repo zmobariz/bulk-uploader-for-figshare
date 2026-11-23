@@ -44,9 +44,11 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 ### Scope
 | Area | Change |
 | --- | --- |
-| Server (`server.js`, new `lib/guard.js`) | CSP and security headers; Host allow-list; cross-origin refusal; Article ID validation; random temp-file names in a `0700` directory; generic JSON errors |
-| UI (`public/app.js`) | Escape every server/Figshare value in results; only link to `https://*.figshare.com`; update banner only links to `https://github.com/` |
-| Desktop (`electron/main.js`) | Explicit sandbox and context isolation; deny `window.open`, navigation, redirects and `<webview>`; deny all permissions; check the IPC sender; no silent install on quit |
+| Server (`server.js`, new `lib/guard.js`) | CSP and security headers; Host allow-list; cross-origin refusal (scheme and host; proxy-aware); private per-process `0700` temp dir; random temp names, tracked and removed on every path; token required before any file is written; 500-file cap; generic JSON errors (malformed multipart → 400) |
+| API core (`lib/figshare.js`) | Article ID must be a positive integer for update, publish, delete and add-files (shared by the web app and CLI); *Create* ignores a supplied ID |
+| UI (`public/app.js`, `public/shared.js`) | Escape every server/Figshare value in results and imported-mapping category IDs; only link to `https://*.figshare.com` / `*.figsh.com`; update banner only links to `https://github.com/`; pre-flight flags non-numeric IDs; results CSV neutralises formulas |
+| CLI (`cli.js`) | Results CSV neutralises formulas |
+| Desktop (`electron/main.js`, `electron-builder.yml`) | Explicit sandbox and context isolation; deny `window.open`, navigation, redirects and `<webview>`; deny all permissions; check the IPC sender; no silent install on quit; start and verify the server once (macOS reopen fix); package only runtime files |
 | Dependencies | Electron 45.4.1, electron-builder 26.18.0, electron-updater 6.8.11, Express 5.3.0, multer 2.5.0; `npm audit` 0 |
 | Container | `node:26-alpine` (digest-pinned), `npm ci --omit=dev` |
 | CI / release | Node 26; `npm ci`; Actions updated (pinned SHAs); cosign v3 Sigstore bundle; new Test workflow; Dependabot groups Actions updates |
@@ -56,8 +58,9 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 | Change | Who is affected | Risk | Mitigation |
 | --- | --- | --- | --- |
 | Host allow-list (HTTP 421 for non-loopback `Host`) | Docker or server deployments reached by a hostname or LAN IP | Medium: those deployments stop answering until configured | Set `ALLOWED_HOSTS` (documented in README and the deployment notes). Desktop and `localhost` use are unaffected |
-| Cross-origin refusal (HTTP 403) | Anyone calling the API from another web origin | Low: not a supported use; the CLI and same-origin UI send no foreign `Origin` | None needed |
-| Article ID must be a positive integer | Spreadsheets with malformed IDs | Low: Figshare IDs are integers; bad rows now fail with a clear message instead of a confusing API error | Clear error text |
+| Cross-origin refusal (HTTP 403) | Anyone calling the API from another web origin; reverse proxies that rewrite `Host` | Low: not a supported use. A proxy must pass `X-Forwarded-Host` and `X-Forwarded-Proto` (nginx/Caddy/Traefik defaults or one line) | Documented in the deployment notes; covered by tests |
+| Article ID must be a positive integer (update/publish/delete/add-files) | Spreadsheets with malformed IDs | Low: Figshare IDs are integers. Pre-flight now flags the row before anything is sent; *Create* ignores the column | Clear error text; tests |
+| Token required before files; 500-file cap | Clients that send files before the token field | Low: the bundled UI already sends the token first | None needed |
 | No install on quit | Windows installer and AppImage users | Low: updates apply only after *Restart to update* | Banner remains; matches the assurance statement |
 | Electron 43 → 45 | All desktop users | Medium: two Chromium/Node majors | Electron smoke and UI-flow tests (below); CI builds for all three OSes before merge |
 | cosign bundle format | People who verify release signatures | Low | ASSURANCE.md documents both the new and the old verification commands |
@@ -66,10 +69,20 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
 ### Test evidence (23 Nov 2026)
 - **Dependencies:** `npm audit` reports 0 vulnerabilities; `npm ci` passes on npm 10 (Node 22) and
   npm 11 (Node 26).
-- **Automated suite** (`npm test`): 17/17 pass on Node 22 and Node 26. Run against the previous
-  code, the suite fails 5 tests (CSP, Host check, cross-origin, Article ID, stack-trace error), which
-  shows it detects the issues it guards against.
-- **Desktop security smoke** (Electron 45.4.1, driven over the DevTools protocol): 18/18 pass.
+- **Automated suite** (`npm test`): 23/23 pass on Node 22 and Node 26, locally and in the Test
+  workflow. An earlier 17-test version of the suite, run against the previous code, failed 5 tests
+  (CSP, Host check, cross-origin, Article ID, stack-trace error), which shows it detects the
+  issues it guards against.
+- **Independent review:** a second, independent AI code review (OpenAI Codex) of the branch diff
+  raised 12 findings.
+  - 11 were confirmed and fixed in this change: a Create-batch regression from the new Article ID
+    check; reverse-proxy origin handling; Origin scheme; shared temp-dir permissions; partial-file
+    cleanup; files written before token validation; macOS window reopen; error status codes;
+    mapping-import escaping; CSV formula injection; staging (`figsh.com`) links.
+  - 1 is accepted as residual risk (below).
+- **Desktop security smoke** (Electron 45.4.1, driven over the DevTools protocol): 18/18 pass. The
+  same 18 checks and the 10 UI-flow checks also pass against the **CI-built Linux AppImage**
+  (extracted; its SHA-512 matches `latest-linux.yml`) and against the trimmed local package.
   - Renderer has no `require`/`process`; only the preload bridge is exposed.
   - SheetJS loads and parses the sample workbook under the CSP.
   - Injected inline `<script>` and `onerror=` handlers are blocked; `fetch` to another origin is blocked.
@@ -90,8 +103,26 @@ change), **Normal** (anything that changes behaviour, security posture or the pl
   nothing created).
 - **Packaging:** `electron-builder --linux dir` succeeds locally. The Windows, macOS and Linux
   builds run in CI through the release workflow (`workflow_dispatch`, no publish) before merge.
-- **Not covered by automation:** live calls to the Figshare API (they need a real account token).
-  The API client code (`lib/figshare.js`) is unchanged in this release apart from its tests.
+- **CI:** the release workflow (`workflow_dispatch`, no publish) built every artifact at 2.2.0 on
+  Windows, macOS and Linux: the portable `.exe`, the setup `.exe`, the `.dmg`, the `.AppImage` and
+  the three `latest*.yml` files. The Test (Node 22/26) and CodeQL checks pass.
+- **Not covered by automation:** live calls to the Figshare API, which need a real account token.
+  The only change to the API client (`lib/figshare.js`) is the Article ID check, which runs before
+  any request is made.
+
+### Residual risk (accepted)
+- **Auto-update trusts the GitHub release metadata.** electron-updater verifies the download against
+  the SHA-512 in `latest*.yml`, which comes from the same GitHub release. The cosign-signed
+  `SHA256SUMS.txt` is not checked in-app. Someone able to replace release assets (i.e. with write
+  access to the repository) could therefore ship an update that installs after *Restart to update*.
+  That attacker could equally replace the manual downloads. Mitigations in place:
+  - Releases are built only by CI from tags.
+  - The update is never installed silently.
+  - The signed checksums allow independent verification.
+
+  Removing this risk needs either paid code signing (electron-updater then checks the publisher)
+  or in-app Sigstore verification. That is tracked as a follow-up and is out of scope for this
+  change.
 
 ### Implementation
 1. Merge #60 to `main` (Test and CodeQL green).

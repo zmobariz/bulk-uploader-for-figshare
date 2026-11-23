@@ -158,6 +158,7 @@
       if (needsId) {
         const matched = b.articleId || existLower.get(tl);
         if (!matched) { issues.push('No Article ID and no matching title on Figshare'); bump('error'); }
+        else if (b.articleId && !/^[1-9][0-9]{0,15}$/.test(String(b.articleId).trim())) { issues.push('Article ID "' + b.articleId + '" is not a Figshare ID (must be a number)'); bump('error'); }
         else if (!b.articleId) { issues.push('Matched existing by title (ID ' + matched + ')'); }
       }
       if (tn) {

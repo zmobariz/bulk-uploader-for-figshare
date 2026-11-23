@@ -18,16 +18,38 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || '127.0.0.1'; // loopback by default; Docker sets 0.0.0.0
 
-const TMP_DIR = path.join(os.tmpdir(), 'figshare-uploader-tmp');
-fs.mkdirSync(TMP_DIR, { recursive: true, mode: 0o700 });
+// A fresh private directory per server process: mkdtemp creates it 0700, so other local
+// accounts cannot list or read attachments, and it never collides with another user's dir.
+const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'figshare-uploader-'));
+const cleanTmpDir = () => { try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch (e) { /* best effort */ } };
+process.on('exit', cleanTmpDir);
+for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => { cleanTmpDir(); process.exit(0); });
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_q, _f, cb) => cb(null, TMP_DIR),
     // Random on-disk name: the client-supplied name never touches the filesystem
     // (it is kept only as file.originalname and sent to Figshare as the file's name).
-    filename: (_q, _f, cb) => cb(null, crypto.randomUUID()),
+    // Every path is recorded on the request so it is removed on every exit path,
+    // including a write error part-way through a file.
+    filename: (req, _f, cb) => {
+      const name = crypto.randomUUID();
+      (req.tmpPaths || (req.tmpPaths = [])).push(path.join(TMP_DIR, name));
+      cb(null, name);
+    },
   }),
-  limits: { fileSize: 1024 * 1024 * 1024 * 20 },
+  // The UI sends the token before any file, so a request without one never writes to disk.
+  fileFilter: (req, _f, cb) => {
+    if (!req.body || !req.body.token) { const err = new Error('Token is required.'); err.status = 400; return cb(err); }
+    cb(null, true);
+  },
+  limits: { fileSize: 1024 * 1024 * 1024 * 20, files: 500, fields: 50, fieldSize: 8 * 1024 * 1024 },
+});
+const removeTmp = (req) => Promise.all((req.tmpPaths || []).map((p) => fsp.unlink(p).catch(() => {})));
+// multer, then always clean up if parsing fails (the route's own finally does it on success).
+const uploadFiles = (req, res, next) => upload.array('files')(req, res, (err) => {
+  if (err) return removeTmp(req).then(() => next(err));
+  next();
 });
 
 app.disable('x-powered-by');
@@ -78,12 +100,11 @@ app.post('/api/list-articles', async (req, res) => {
 });
 
 // Process one row (any operation).
-app.post('/api/process', upload.array('files'), async (req, res) => {
+app.post('/api/process', uploadFiles, async (req, res) => {
   const files = (req.files || []).map((f) => ({ path: f.path, name: f.originalname }));
   try {
     const b = req.body;
     if (!b.token) throw new Error('Token is required.');
-    if (b.articleId && !guard.isArticleId(b.articleId)) { const err = new Error('Article ID must be a number.'); err.status = 400; throw err; }
     let metadata = {};
     if (b.metadata) { try { metadata = JSON.parse(b.metadata); } catch { throw new Error('Invalid metadata payload.'); } }
     let embargo = null;
@@ -108,13 +129,19 @@ app.post('/api/process', upload.array('files'), async (req, res) => {
       privateUrl: id ? `https://figshare.com/account/articles/${id}` : null,
     });
   } catch (e) { fail(res, e); }
-  finally { await Promise.all(files.map((f) => safeUnlink(f.path))); }
+  finally { await Promise.all([...files.map((f) => safeUnlink(f.path)), removeTmp(req)]); }
 });
 
 // Last-resort handler: generic JSON, never a stack trace.
-// eslint-disable-next-line no-unused-vars
-app.use((err, _req, res, _next) => {
-  const status = err.name === 'MulterError' ? 400 : (err.status || err.statusCode || 500);
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err); // let Express close the half-sent response
+  let status = err.status || err.statusCode;
+  if (!status) {
+    if (err.name === 'MulterError') status = 400;
+    else if (err.code && /^E[A-Z]+$/.test(err.code)) status = 500; // filesystem/OS error (e.g. ENOSPC)
+    else if (req.path === '/api/process') status = 400; // malformed multipart body (busboy)
+    else status = 500;
+  }
   res.status(status).json({ ok: false, error: status < 500 ? err.message : 'Internal error' });
 });
 

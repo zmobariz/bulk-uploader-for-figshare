@@ -12,8 +12,8 @@ const path = require('node:path');
 const net = require('node:net');
 
 const ROOT = path.join(__dirname, '..');
-const TMP_DIR = path.join(os.tmpdir(), 'figshare-uploader-tmp');
-let proc; let base; let port;
+const tmpDirs = () => new Set(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('figshare-uploader-')));
+let proc; let base; let port; let TMP_DIR;
 
 const freePort = () => new Promise((resolve, reject) => {
   const s = net.createServer(); s.on('error', reject);
@@ -23,14 +23,28 @@ const freePort = () => new Promise((resolve, reject) => {
 before(async () => {
   port = await freePort();
   base = `http://127.0.0.1:${port}`;
+  const existing = tmpDirs();
   proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NO_UPDATE_CHECK: '1' }, stdio: 'ignore' });
   for (let i = 0; i < 50; i++) {
-    try { const r = await fetch(`${base}/api/health`); if (r.ok) return; } catch (e) { /* not up yet */ }
+    try {
+      const r = await fetch(`${base}/api/health`);
+      if (r.ok) {
+        const mine = [...tmpDirs()].filter((d) => !existing.has(d));
+        assert.equal(mine.length, 1, 'server creates exactly one private temp dir');
+        TMP_DIR = path.join(os.tmpdir(), mine[0]);
+        return;
+      }
+    } catch (e) { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error('server did not start');
 });
-after(() => { if (proc) proc.kill(); });
+after(async () => {
+  if (!proc) return;
+  const exited = new Promise((r) => proc.once('exit', r));
+  proc.kill('SIGTERM'); await exited;
+  if (process.platform !== 'win32') assert.equal(fs.existsSync(TMP_DIR), false, 'temp dir removed on shutdown');
+});
 
 // fetch() cannot override Host, so raw requests go through node:http.
 const raw = (opts, body) => new Promise((resolve, reject) => {
@@ -80,6 +94,22 @@ test('cross-origin POST is refused (CSRF defence)', async () => {
   assert.equal(r4.status, 403);
 });
 
+test('reverse proxy: Origin matching X-Forwarded-Host is accepted, a mismatch is not', async () => {
+  const body = JSON.stringify({});
+  const hdr = (origin, fwd) => ({ method: 'POST', path: '/api/test-token', headers: { host: `127.0.0.1:${port}`, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), origin, 'x-forwarded-host': fwd } });
+  const req = (origin, fwd, proto) => { const o = hdr(origin, fwd); if (proto) o.headers['x-forwarded-proto'] = proto; return o; };
+  const ok = await raw(req('https://uploader.example.ac.uk', 'uploader.example.ac.uk', 'https'), body);
+  assert.equal(ok.status, 400); // reached the handler
+  const bad = await raw(req('https://attacker.example', 'uploader.example.ac.uk', 'https'), body);
+  assert.equal(bad.status, 403);
+  // scheme must match too: an http:// page cannot post to the https:// deployment
+  const scheme = await raw(req('http://uploader.example.ac.uk', 'uploader.example.ac.uk', 'https'), body);
+  assert.equal(scheme.status, 403);
+  // direct (no proxy): the server only speaks http, so an https Origin for the same host is foreign
+  const direct = await postJson('/api/test-token', {}, { origin: `https://127.0.0.1:${port}` });
+  assert.equal(direct.status, 403);
+});
+
 test('same-origin POST is accepted', async () => {
   const r = await postJson('/api/test-token', {}, { origin: base });
   assert.equal(r.status, 400); // reached the handler: "Token is required."
@@ -104,8 +134,35 @@ test('non-numeric Article ID is refused (stops ID injection / reflected XSS)', a
   }
 });
 
+test('Create ignores a non-numeric ID column (e.g. an auto-mapped "Identifier")', async () => {
+  const fd = new FormData();
+  fd.append('token', 'x'); fd.append('operation', 'create'); fd.append('articleId', 'LAB-42');
+  fd.append('baseUrl', 'https://127.0.0.1'); // blocked -> fails fast, offline
+  fd.append('metadata', JSON.stringify({ title: 'Dataset title' }));
+  const j = await (await fetch(`${base}/api/process`, { method: 'POST', body: fd })).json();
+  assert.doesNotMatch(j.error, /Article ID/);
+  assert.match(j.error, /Blocked non-Figshare request/); // got as far as calling Figshare
+});
+
+test('private temp dir (0700) and no file is written without a token', async () => {
+  if (process.platform !== 'win32') assert.equal(fs.statSync(TMP_DIR).mode & 0o777, 0o700);
+  const fd = new FormData();
+  fd.append('operation', 'addfiles'); fd.append('articleId', '1');
+  fd.append('files', new Blob(['x'.repeat(1024)]), 'a.bin');
+  const r = await fetch(`${base}/api/process`, { method: 'POST', body: fd });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /Token is required/);
+  assert.deepEqual(fs.readdirSync(TMP_DIR), []);
+});
+
+test('malformed multipart body is a 400, not a 500', async () => {
+  const r = await fetch(`${base}/api/process`, { method: 'POST', headers: { 'content-type': 'multipart/form-data' }, body: 'garbage' });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).ok, false);
+});
+
 test('uploads use random temp names, ignore path components and are cleaned up', async () => {
-  const before = fs.existsSync(TMP_DIR) ? new Set(fs.readdirSync(TMP_DIR)) : new Set();
+  const before = new Set(fs.readdirSync(TMP_DIR));
   const fd = new FormData();
   fd.append('token', 'x'); fd.append('operation', 'addfiles'); fd.append('articleId', '1');
   fd.append('baseUrl', 'https://127.0.0.1'); // blocked -> fails fast, offline

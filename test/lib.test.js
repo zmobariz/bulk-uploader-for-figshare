@@ -35,6 +35,28 @@ test('figshare.figApi refuses non-allow-listed hosts before any network I/O', as
   }
 });
 
+test('runOperation validates Article IDs for operations that use them, before any request', async () => {
+  for (const operation of ['update', 'publish', 'delete', 'addfiles']) {
+    await assert.rejects(fig.runOperation({ base: 'https://127.0.0.1', token: 't', operation, articleId: '1<img src=x>', metadata: {} }), /Article ID must be a number/, operation);
+  }
+  // create ignores the supplied ID and proceeds to the (blocked) create call
+  await assert.rejects(fig.runOperation({ base: 'https://127.0.0.1', token: 't', operation: 'create', articleId: 'LAB-42', metadata: { title: 'abc' } }), /Blocked non-Figshare request/);
+});
+
+test('pre-flight blocks a non-numeric Article ID only for operations that use it', () => {
+  const M = require('../public/shared.js');
+  const mapping = { fields: { title: 'Title', articleId: 'ID' }, customFields: {}, defaults: { categories: [], license: null, defined_type: '', group_id: null } };
+  const rows = [{ Title: 'Alpha dataset', ID: 'LAB-42' }, { Title: 'Beta dataset', ID: '123' }];
+  const ctx = (operation) => ({ operation, sync: 'create', mode: 'metadata', publish: false, lookups: null, existing: [], fileSet: new Set() });
+  const upd = M.preflight(rows, mapping, ctx('update'));
+  assert.equal(upd.blocking, true);
+  assert.equal(upd.rows[0].bucket, 'error');
+  assert.match(upd.rows[0].issues.join(' '), /not a Figshare ID/);
+  assert.equal(upd.rows[1].bucket, 'ok');
+  const crt = M.preflight(rows, mapping, ctx('create'));
+  assert.equal(crt.blocking, false);
+});
+
 test('update.cmpVersion orders versions', () => {
   assert.equal(cmpVersion('2.2.0', '2.1.3'), 1);
   assert.equal(cmpVersion('v2.1.3', '2.1.3'), 0);

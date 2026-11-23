@@ -54,7 +54,13 @@ async function pool(items, n, worker) {
   return results;
 }
 
-function csvCell(s) { const v = String(s == null ? '' : s).replace(/"/g, '""'); return /[",\n]/.test(v) ? `"${v}"` : v; }
+// Neutralise spreadsheet formulas (=, +, -, @, tab, CR) so results open as text, then quote as needed.
+function csvCell(s) {
+  let v = String(s == null ? '' : s);
+  if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+  v = v.replace(/"/g, '""');
+  return /[",\n\r]/.test(v) ? `"${v}"` : v;
+}
 
 (async function main() {
   const args = parseArgs(process.argv.slice(2));

@@ -60,6 +60,23 @@ reverse proxy or `http://uploader.example.ac.uk`), set **`ALLOWED_HOSTS`** to th
 (comma-separated). Put it behind HTTPS and your own authentication: the app has no user accounts,
 and anyone who can reach it can use it with **their own** Figshare token (tokens are never stored).
 
+Behind a reverse proxy that rewrites `Host`, forward the public host and scheme so the app can
+recognise its own pages' requests. Otherwise uploads are refused as cross-origin (HTTP 403).
+nginx example:
+
+```nginx
+proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+Caddy and Traefik send both headers by default. Attachments are staged in a private temp directory
+(one per server process, deleted on exit); a single request is limited to 500 files of up to 20 GB
+each, so size the temp volume accordingly.
+
+Where the GitHub auto-update channel is not acceptable (see *Known limitations* in
+[ASSURANCE.md](../ASSURANCE.md)), set `NO_UPDATE_CHECK=1`, verify releases against the signed
+checksums and deploy them yourself.
+
 ## Running under application allowlisting (WDAC / AppLocker)
 - The executables are **not code-signed** (certificates cost money), so SmartScreen/Gatekeeper will
   warn on first run (click-through, **no admin needed**), and **publisher-based** allowlist rules won't match.

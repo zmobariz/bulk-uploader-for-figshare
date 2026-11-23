@@ -67,7 +67,14 @@ teams make an informed decision. It does **not** certify the software as free of
 
 ## Known limitations
 - Unsigned binaries (SmartScreen/Gatekeeper prompts; no publisher-based allow-list rules).
-- No formal third-party security audit or certification.
+- Desktop auto-update checks each download against the SHA-512 in the release's `latest*.yml`. That
+  file comes from the same GitHub release, and the cosign-signed `SHA256SUMS.txt` is not checked
+  in-app. Anyone able to replace release assets could ship an update; they could equally replace
+  the manual downloads. Updates are never installed without the user clicking *Restart to update*.
+  Where this matters, disable auto-update (`NO_UPDATE_CHECK=1`) and deploy releases verified against
+  the signed checksums.
+- No formal third-party security audit or certification. Reviews to date are the maintainer's
+  security review plus an independent AI code review of each release (see `docs/CHANGE-CONTROL.md`).
 - Duplicate detection matches on Title (or an Article ID column), not a cryptographic key.
 - Static analysis (CodeQL) flags the API-proxy fetch as a potential SSRF. This is mitigated by the
   Figshare host allow-list plus loopback binding, and is recorded as a reviewed, dismissed finding

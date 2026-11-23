@@ -10,10 +10,11 @@
  *   - The portable .exe and unsigned macOS build can't self-install, so they
  *     fall back to a "new version available — Download" banner instead.
  */
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const net = require('net');
 const http = require('http');
+const APP_VERSION = require('../package.json').version; // the same file server.js reports in /api/health
 
 function findFreePort() {
   return new Promise((resolve, reject) => {
@@ -27,8 +28,17 @@ function waitForServer(port, timeoutMs) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const tryOnce = () => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', timeout: 1000 }, (res) => { res.resume(); resolve(); });
-      req.on('error', () => { (Date.now() - start > timeoutMs) ? reject(new Error('server timeout')) : setTimeout(tryOnce, 250); });
+      const retry = () => { (Date.now() - start > timeoutMs) ? reject(new Error('server timeout')) : setTimeout(tryOnce, 250); };
+      // Only accept OUR server: the health endpoint must report this app's exact version.
+      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', timeout: 1000 }, (res) => {
+        let body = ''; res.setEncoding('utf8');
+        res.on('data', (c) => { if (body.length < 4096) body += c; });
+        res.on('end', () => {
+          let j = null; try { j = JSON.parse(body); } catch (e) { /* not ours */ }
+          if (j && j.ok === true && j.version === APP_VERSION) resolve(); else retry();
+        });
+      });
+      req.on('error', retry);
       req.on('timeout', () => req.destroy());
     };
     tryOnce();
@@ -37,7 +47,8 @@ function waitForServer(port, timeoutMs) {
 
 const RELEASES_URL = 'https://github.com/zmobariz/bulk-uploader-for-figshare/releases';
 
-function wireUpdater(win) {
+// Registered once per process; always targets the current window (`win`, below).
+function wireUpdater() {
   let autoUpdater = null;
   try { ({ autoUpdater } = require('electron-updater')); } catch (e) { autoUpdater = null; }
 
@@ -76,6 +87,7 @@ function wireUpdater(win) {
 }
 
 let win;
+let serverReady = false;
 let appOrigin = null; // http://127.0.0.1:<port>, set once the server port is known
 const isAppUrl = (u) => { try { return new URL(u).origin === appOrigin; } catch (e) { return false; } };
 const isHttpsUrl = (u) => { try { return new URL(u).protocol === 'https:'; } catch (e) { return false; } };
@@ -90,7 +102,8 @@ app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (ev) => ev.preventDefault());
 });
 
-async function createWindow() {
+// Runs once: start the in-process server, verify it, then open the window.
+async function startApp() {
   const port = await findFreePort();
   process.env.PORT = String(port);
   appOrigin = `http://127.0.0.1:${port}`;
@@ -102,6 +115,17 @@ async function createWindow() {
   session.defaultSession.setPermissionCheckHandler(() => false);
   if (session.defaultSession.setDevicePermissionHandler) session.defaultSession.setDevicePermissionHandler(() => false);
 
+  try { await waitForServer(port, 20000); } catch (e) {
+    dialog.showErrorBox('Bulk Uploader for Figshare', 'The app could not start its local server. Please restart it.');
+    app.quit(); return;
+  }
+  wireUpdater();
+  serverReady = true;
+  createWindow();
+}
+
+// May run again on macOS (Dock click after closing the window): reuses the one server and port.
+function createWindow() {
   win = new BrowserWindow({
     width: 1120, height: 920, minWidth: 720, minHeight: 600,
     title: 'Bulk Uploader for Figshare', backgroundColor: '#f6f7fb',
@@ -112,11 +136,9 @@ async function createWindow() {
     },
   });
   if (win.removeMenu) win.removeMenu();
-  wireUpdater(win);
-  try { await waitForServer(port, 20000); } catch (e) { /* load anyway */ }
-  win.loadURL(`http://127.0.0.1:${port}`);
+  win.loadURL(appOrigin);
 }
 
-app.whenReady().then(createWindow);
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app.whenReady().then(startApp);
+app.on('activate', () => { if (serverReady && BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

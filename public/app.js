@@ -149,7 +149,7 @@
     const box = $('#catChips'); box.innerHTML = '';
     state.mapping.defaults.categories.forEach((id) => {
       const found = (state.lookups && (state.lookups.categories || []).find((c) => c.id === id)) || null;
-      const chip = el('span', 'chip', `${id}${found ? ' · ' + esc(found.title) : ''}`);
+      const chip = el('span', 'chip', `${esc(id)}${found ? ' · ' + esc(found.title) : ''}`);
       const x = el('button', 'linklike', ' ✕'); x.onclick = () => { state.mapping.defaults.categories = state.mapping.defaults.categories.filter((c) => c !== id); renderCatChips(); updateJson(); };
       chip.appendChild(x); box.appendChild(chip);
     });
@@ -386,7 +386,7 @@
     fd.append('reserveDoi', String(state.reserveDoi));
     if (state.embargo.enabled && state.embargo.date) fd.append('embargo', JSON.stringify({ enabled: true, date: state.embargo.date, type: 'article' }));
     fd.append('metadata', JSON.stringify(b.meta));
-    if (articleId) fd.append('articleId', articleId);
+    if (articleId && op !== 'create') fd.append('articleId', articleId);
     if (state.mode === 'files' || op === 'addfiles') b.fileNames.forEach((n) => { const f = state.fileMap.get(M.baseName(n).toLowerCase()); if (f) fd.append('files', f, f.name); });
 
     try {
@@ -473,9 +473,19 @@
   function fmtSize(b) { if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'; if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB'; return (b / 1073741824).toFixed(2) + ' GB'; }
   function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   function safeFigshareUrl(u) {
-    try { const x = new URL(String(u)); const h = x.hostname.toLowerCase(); return x.protocol === 'https:' && (h === 'figshare.com' || h.endsWith('.figshare.com')); } catch (e) { return false; }
+    try {
+      const x = new URL(String(u)); const h = x.hostname.toLowerCase();
+      return x.protocol === 'https:' && (h === 'figshare.com' || h.endsWith('.figshare.com') || h === 'figsh.com' || h.endsWith('.figsh.com'));
+    } catch (e) { return false; }
   }
-  function csv(s) { const v = String(s).replace(/"/g, '""'); return /[",\n]/.test(v) ? `"${v}"` : v; }
+  // CSV cell: neutralise spreadsheet formulas (=, +, -, @, tab, CR) so a title like "=HYPERLINK(...)"
+  // stays text when the results file is opened in Excel/LibreOffice, then quote as needed.
+  function csv(s) {
+    let v = String(s);
+    if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+    v = v.replace(/"/g, '""');
+    return /[",\n\r]/.test(v) ? `"${v}"` : v;
+  }
   function downloadFile(name, content, type) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const a = el('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); }
 
   /* ---------------- init ---------------- */
